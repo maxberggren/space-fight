@@ -1,0 +1,17 @@
+{
+  "name": "two-player-shooting-game",
+  "version": "1.0.0",
+  "description": "A simple two-player shooting game built with Phaser 3",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "game",
+    "phaser",
+    "javascript",
+    "html5"
+  ],
+  "author": "",
+  "license": "MIT"
+} 
