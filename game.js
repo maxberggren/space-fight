@@ -1,8 +1,9 @@
 // Game configuration
 const config = {
     type: Phaser.AUTO,
-    width: 800,
-    height: 600,
+    // Use window dimensions for full viewport width and height
+    width: window.innerWidth,
+    height: window.innerHeight,
     physics: {
         default: 'arcade',
         arcade: {
@@ -16,7 +17,12 @@ const config = {
         update: update
     },
     // Enable camera bounds to be much larger than the visible area
-    backgroundColor: '#000000'
+    backgroundColor: '#000000',
+    // Use EXPAND mode to fill the screen while maintaining aspect ratio
+    scale: {
+        mode: Phaser.Scale.EXPAND,
+        autoCenter: Phaser.Scale.CENTER_BOTH
+    }
 };
 
 // Debug flag - set to true to enable debug features
@@ -24,6 +30,12 @@ const DEBUG_MODE = true;
 
 // Initialize the game
 const game = new Phaser.Game(config);
+
+// Handle window resizing
+window.addEventListener('resize', function() {
+    // Update the game size while maintaining aspect ratio
+    game.scale.resize(window.innerWidth, window.innerHeight);
+});
 
 // Game variables
 let player1;
@@ -40,15 +52,10 @@ let cursors;
 let wasdKeys;
 let shootKey1;
 let shootKey2;
-let resetKey;
 let shootSound;
 let explosionSound;
 let respawnSound;
 let debugText;
-let player1Crosshair;
-let player2Crosshair;
-let player1Indicator;
-let player2Indicator;
 
 // Camera variables
 let mainCamera;
@@ -57,7 +64,8 @@ let currentZoom = 1;
 let zoomSpeed = 0.05;
 let minZoom = 0.5;
 let maxZoom = 2;
-let cameraMargin = 100; // Margin to keep around players
+let cameraMargin = 150; // Increased margin to keep around players
+let maxPlayerDistance = 1200; // Reduced maximum distance players can get from each other
 
 // Infinite world size (much larger than visible area)
 const WORLD_SIZE = 10000;
@@ -134,31 +142,30 @@ function create() {
     triangleGraphics.strokePath();
     triangleGraphics.generateTexture('shield', 40, 40);
     
-    // Create crosshair graphics
-    triangleGraphics.clear();
-    triangleGraphics.lineStyle(1, 0xffff00);
-    // Circle
-    triangleGraphics.beginPath();
-    triangleGraphics.arc(0, 0, 4, 0, Math.PI * 2);
-    triangleGraphics.closePath();
-    triangleGraphics.strokePath();
-    // Lines
-    triangleGraphics.beginPath();
-    triangleGraphics.moveTo(-6, 0);
-    triangleGraphics.lineTo(6, 0);
-    triangleGraphics.moveTo(0, -6);
-    triangleGraphics.lineTo(0, 6);
-    triangleGraphics.strokePath();
-    triangleGraphics.generateTexture('crosshair', 12, 12);
-    
     // Destroy the graphics object as we no longer need it
     triangleGraphics.destroy();
 
+    // Set up initial player positions with randomness
+    // Random distance between 350 and 450 units between players
+    const startingDistance = 350 + Math.random() * 100;
+    
+    // Random angle for the axis between players
+    const axisAngle = Math.random() * Math.PI * 2;
+    
+    // Calculate positions based on the random angle and distance
+    const player1X = -Math.cos(axisAngle) * (startingDistance / 2);
+    const player1Y = -Math.sin(axisAngle) * (startingDistance / 2);
+    const player1Angle = Phaser.Math.RadToDeg(axisAngle); // Face toward player 2
+    
+    const player2X = Math.cos(axisAngle) * (startingDistance / 2);
+    const player2Y = Math.sin(axisAngle) * (startingDistance / 2);
+    const player2Angle = Phaser.Math.RadToDeg(axisAngle) + 180; // Face toward player 1
+
     // Create player 1 (blue)
-    player1 = this.physics.add.sprite(200, 300, 'player1_triangle');
+    player1 = this.physics.add.sprite(player1X, player1Y, 'player1_triangle');
     // Remove world bounds constraint
     player1.setCollideWorldBounds(false);
-    player1.angle = 0;
+    player1.angle = player1Angle;
     player1.speed = 0;
     player1.setData('isShooting', false);
     player1.setData('lastShot', 0);
@@ -167,22 +174,16 @@ function create() {
     player1.body.setOffset(3, 4);
 
     // Create player 2 (red)
-    player2 = this.physics.add.sprite(600, 300, 'player2_triangle');
+    player2 = this.physics.add.sprite(player2X, player2Y, 'player2_triangle');
     // Remove world bounds constraint
     player2.setCollideWorldBounds(false);
-    player2.angle = 180;
+    player2.angle = player2Angle;
     player2.speed = 0;
     player2.setData('isShooting', false);
     player2.setData('lastShot', 0);
     player2.setData('isInvulnerable', false);
     player2.body.setSize(24, 32);
     player2.body.setOffset(3, 4);
-
-    // Create crosshairs
-    player1Crosshair = this.add.image(player1.x, player1.y, 'crosshair');
-    player2Crosshair = this.add.image(player2.x, player2.y, 'crosshair');
-    player1Crosshair.setAlpha(0.8);
-    player2Crosshair.setAlpha(0.8);
 
     // Create bullet groups
     player1Bullets = this.physics.add.group({
@@ -235,7 +236,7 @@ function create() {
     shootSound = this.sound.add('shoot');
     explosionSound = this.sound.add('explosion');
     respawnSound = this.sound.add('respawn');
-    
+
     // Create explosion animation
     this.anims.create({
         key: 'explode',
@@ -243,9 +244,6 @@ function create() {
         frameRate: 20,
         hideOnComplete: true
     });
-
-    // Create player indicators for off-screen players
-    createPlayerIndicators(this);
 }
 
 // Create a grid background to help visualize the infinite world
@@ -288,151 +286,8 @@ function createGridBackground(scene) {
     gridGraphics.strokePath();
 }
 
-// Create indicators to show direction of off-screen players
-function createPlayerIndicators(scene) {
-    // Create triangle for player 1 indicator (blue)
-    const indicatorGraphics = scene.add.graphics();
-    
-    // Player 1 indicator (blue triangle)
-    indicatorGraphics.clear();
-    indicatorGraphics.lineStyle(2, 0xffffff);
-    indicatorGraphics.fillStyle(0x0000ff);
-    indicatorGraphics.beginPath();
-    indicatorGraphics.moveTo(0, -10);  // Point at top
-    indicatorGraphics.lineTo(7, 10);   // Bottom right
-    indicatorGraphics.lineTo(-7, 10);  // Bottom left
-    indicatorGraphics.closePath();
-    indicatorGraphics.strokePath();
-    indicatorGraphics.fillPath();
-    indicatorGraphics.generateTexture('player1_indicator', 15, 20);
-    
-    // Player 2 indicator (red triangle)
-    indicatorGraphics.clear();
-    indicatorGraphics.lineStyle(2, 0xffffff);
-    indicatorGraphics.fillStyle(0xff0000);
-    indicatorGraphics.beginPath();
-    indicatorGraphics.moveTo(0, -10);  // Point at top
-    indicatorGraphics.lineTo(7, 10);   // Bottom right
-    indicatorGraphics.lineTo(-7, 10);  // Bottom left
-    indicatorGraphics.closePath();
-    indicatorGraphics.strokePath();
-    indicatorGraphics.fillPath();
-    indicatorGraphics.generateTexture('player2_indicator', 15, 20);
-    
-    // Destroy the graphics object as we no longer need it
-    indicatorGraphics.destroy();
-    
-    // Create the indicators
-    player1Indicator = scene.add.image(0, 0, 'player1_indicator');
-    player2Indicator = scene.add.image(0, 0, 'player2_indicator');
-    
-    // Set them to be fixed to the camera
-    player1Indicator.setScrollFactor(0);
-    player2Indicator.setScrollFactor(0);
-    
-    // Initially hide them
-    player1Indicator.setVisible(false);
-    player2Indicator.setVisible(false);
-}
-
-// Update indicators for off-screen players
-function updatePlayerIndicators() {
-    if (!player1 || !player2 || !mainCamera || !player1Indicator || !player2Indicator) return;
-    
-    const padding = 40; // Padding from the edge of the screen
-    const halfWidth = config.width / 2;
-    const halfHeight = config.height / 2;
-    
-    // Get camera view coordinates
-    const camX = mainCamera.scrollX;
-    const camY = mainCamera.scrollY;
-    const camWidth = config.width / currentZoom;
-    const camHeight = config.height / currentZoom;
-    
-    // Check if player 2 is off-screen for player 1's view
-    const p2OffScreen = (
-        player2.x < camX - camWidth/2 || 
-        player2.x > camX + camWidth/2 || 
-        player2.y < camY - camHeight/2 || 
-        player2.y > camY + camHeight/2
-    );
-    
-    if (p2OffScreen) {
-        // Calculate angle from player 1 to player 2
-        const angle = Phaser.Math.Angle.Between(player1.x, player1.y, player2.x, player2.y);
-        
-        // Calculate position on the edge of the screen
-        let indicatorX = Math.cos(angle) * (halfWidth - padding);
-        let indicatorY = Math.sin(angle) * (halfHeight - padding);
-        
-        // Clamp to screen edges
-        const absX = Math.abs(indicatorX);
-        const absY = Math.abs(indicatorY);
-        
-        if (absX > absY) {
-            // Indicator will be on left or right edge
-            indicatorY = (indicatorY / absX) * (halfWidth - padding);
-            indicatorX = (indicatorX > 0) ? (halfWidth - padding) : -(halfWidth - padding);
-        } else {
-            // Indicator will be on top or bottom edge
-            indicatorX = (indicatorX / absY) * (halfHeight - padding);
-            indicatorY = (indicatorY > 0) ? (halfHeight - padding) : -(halfHeight - padding);
-        }
-        
-        // Position and rotate the indicator
-        player2Indicator.setPosition(indicatorX + halfWidth, indicatorY + halfHeight);
-        player2Indicator.setRotation(angle);
-        player2Indicator.setVisible(true);
-    } else {
-        player2Indicator.setVisible(false);
-    }
-    
-    // Check if player 1 is off-screen for player 2's view
-    const p1OffScreen = (
-        player1.x < camX - camWidth/2 || 
-        player1.x > camX + camWidth/2 || 
-        player1.y < camY - camHeight/2 || 
-        player1.y > camY + camHeight/2
-    );
-    
-    if (p1OffScreen) {
-        // Calculate angle from player 2 to player 1
-        const angle = Phaser.Math.Angle.Between(player2.x, player2.y, player1.x, player1.y);
-        
-        // Calculate position on the edge of the screen
-        let indicatorX = Math.cos(angle) * (halfWidth - padding);
-        let indicatorY = Math.sin(angle) * (halfHeight - padding);
-        
-        // Clamp to screen edges
-        const absX = Math.abs(indicatorX);
-        const absY = Math.abs(indicatorY);
-        
-        if (absX > absY) {
-            // Indicator will be on left or right edge
-            indicatorY = (indicatorY / absX) * (halfWidth - padding);
-            indicatorX = (indicatorX > 0) ? (halfWidth - padding) : -(halfWidth - padding);
-        } else {
-            // Indicator will be on top or bottom edge
-            indicatorX = (indicatorX / absY) * (halfHeight - padding);
-            indicatorY = (indicatorY > 0) ? (halfHeight - padding) : -(halfHeight - padding);
-        }
-        
-        // Position and rotate the indicator
-        player1Indicator.setPosition(indicatorX + halfWidth, indicatorY + halfHeight);
-        player1Indicator.setRotation(angle);
-        player1Indicator.setVisible(true);
-    } else {
-        player1Indicator.setVisible(false);
-    }
-}
-
 // Update game state
 function update(time) {
-    // Check for reset key
-    if (Phaser.Input.Keyboard.JustDown(resetKey)) {
-        resetGame();
-    }
-    
     // Safety check - ensure players are visible
     if (!player1.visible) {
         player1.visible = true;
@@ -529,12 +384,12 @@ function update(time) {
             
             // If bullet is too far from both players, remove it
             if (distToPlayer1 > maxBulletDistance && distToPlayer2 > maxBulletDistance) {
-                bullet.setActive(false);
-                bullet.setVisible(false);
+            bullet.setActive(false);
+            bullet.setVisible(false);
             }
         }
     });
-    
+
     player2Bullets.getChildren().forEach(bullet => {
         if (bullet.active) {
             // Calculate distance from both players
@@ -543,18 +398,12 @@ function update(time) {
             
             // If bullet is too far from both players, remove it
             if (distToPlayer1 > maxBulletDistance && distToPlayer2 > maxBulletDistance) {
-                bullet.setActive(false);
-                bullet.setVisible(false);
+            bullet.setActive(false);
+            bullet.setVisible(false);
             }
         }
     });
-    
-    // Update crosshair positions
-    updateCrosshairs();
-    
-    // Update player indicators
-    updatePlayerIndicators();
-    
+
     // Update camera position and zoom
     updateCamera();
 }
@@ -562,8 +411,39 @@ function update(time) {
 // Helper function to move a player based on angle and speed
 function movePlayer(player) {
     const angleRad = Phaser.Math.DegToRad(player.angle);
-    player.x += Math.cos(angleRad) * player.speed * 0.01;
-    player.y += Math.sin(angleRad) * player.speed * 0.01;
+    
+    // Calculate new position
+    const newX = player.x + Math.cos(angleRad) * player.speed * 0.01;
+    const newY = player.y + Math.sin(angleRad) * player.speed * 0.01;
+    
+    // Check if this would exceed the maximum distance between players
+    const otherPlayer = (player === player1) ? player2 : player1;
+    const newDistance = Phaser.Math.Distance.Between(newX, newY, otherPlayer.x, otherPlayer.y);
+    
+    if (newDistance <= maxPlayerDistance) {
+        // If within allowed distance, update position
+        player.x = newX;
+        player.y = newY;
+    } else {
+        // Calculate how far beyond the limit the player is trying to go
+        const distanceRatio = maxPlayerDistance / newDistance;
+        
+        // The further they try to go, the stronger the rubber band effect
+        const slowdownFactor = distanceRatio * 0.5;
+        
+        // Apply movement with slowdown
+        player.x += Math.cos(angleRad) * player.speed * 0.01 * slowdownFactor;
+        player.y += Math.sin(angleRad) * player.speed * 0.01 * slowdownFactor;
+        
+        // Reduce speed more aggressively when hitting the distance limit
+        player.speed *= 0.9;
+        
+        // Add a slight pull back toward the other player
+        const pullBackFactor = 0.01;
+        const angleToOther = Math.atan2(otherPlayer.y - player.y, otherPlayer.x - player.x);
+        player.x += Math.cos(angleToOther) * pullBackFactor * (newDistance - maxPlayerDistance);
+        player.y += Math.sin(angleToOther) * pullBackFactor * (newDistance - maxPlayerDistance);
+    }
 }
 
 // Helper function to shoot a bullet
@@ -612,14 +492,15 @@ function bulletHitPlayer2(bullet, player) {
     
     // Increment score for player 1
     player1Score++;
-    player1ScoreText.setText('Player 1: ' + player1Score);
+    player1ScoreText.setText('Blue: ' + player1Score);
     
     // Destroy the bullet
     bullet.setActive(false);
     bullet.setVisible(false);
     
     // Respawn player 2 - use player2 reference, not the parameter
-    respawnPlayer(player2, 600, 300, 180);
+    // Pass null values for position and angle to ensure they're calculated randomly
+    respawnPlayer(player2, null, null, null);
 }
 
 // Collision handler for player 1 getting hit
@@ -637,14 +518,15 @@ function bulletHitPlayer1(bullet, player) {
     
     // Increment score for player 2
     player2Score++;
-    player2ScoreText.setText('Player 2: ' + player2Score);
+    player2ScoreText.setText('Red: ' + player2Score);
     
     // Destroy the bullet
     bullet.setActive(false);
     bullet.setVisible(false);
     
     // Respawn player 1 - use player1 reference, not the parameter
-    respawnPlayer(player1, 200, 300, 0);
+    // Pass null values for position and angle to ensure they're calculated randomly
+    respawnPlayer(player1, null, null, null);
 }
 
 // Helper function to respawn a player
@@ -654,6 +536,37 @@ function respawnPlayer(player, x, y, angle) {
     
     // Play respawn sound
     respawnSound.play({ volume: 0.5 });
+    
+    // Get the other player
+    const otherPlayer = (player === player1) ? player2 : player1;
+    
+    // Calculate respawn position with randomness
+    // Random distance between 300 and 600 units from the other player
+    const minDistance = 300;
+    const maxDistance = 600;
+    const respawnDistance = minDistance + Math.random() * (maxDistance - minDistance);
+    
+    // Random angle for respawn position (ensure it's truly random each time)
+    const respawnAngle = Math.random() * Math.PI * 2;
+    
+    // Calculate new position based on other player's position
+    x = otherPlayer.x + Math.cos(respawnAngle) * respawnDistance;
+    y = otherPlayer.y + Math.sin(respawnAngle) * respawnDistance;
+    
+    // Random starting angle (facing roughly toward the other player, but with some variation)
+    // Calculate angle toward other player
+    const angleToOther = Phaser.Math.RadToDeg(
+        Math.atan2(otherPlayer.y - y, otherPlayer.x - x)
+    );
+    
+    // Add some random variation (-45 to +45 degrees)
+    const angleVariation = (Math.random() * 90) - 45;
+    angle = angleToOther + angleVariation;
+    
+    // Log respawn details for debugging
+    if (DEBUG_MODE && debugText) {
+        console.log(`Respawning ${player === player1 ? 'P1' : 'P2'} at distance: ${respawnDistance.toFixed(0)}, angle: ${respawnAngle.toFixed(2)}, pos: ${x.toFixed(0)},${y.toFixed(0)}`);
+    }
     
     // Reset position and properties
     player.x = x;
@@ -665,9 +578,8 @@ function respawnPlayer(player, x, y, angle) {
     player.visible = true;
     player.alpha = 1;
     
-    // Get the appropriate shield and crosshair
+    // Get the appropriate shield
     let shield = (player === player1) ? player1Shield : player2Shield;
-    let crosshair = (player === player1) ? player1Crosshair : player2Crosshair;
     
     // Make sure shield is visible and positioned correctly
     shield.visible = true;
@@ -676,11 +588,13 @@ function respawnPlayer(player, x, y, angle) {
     shield.alpha = 0.7;
     shield.setScale(1.5);
     
+    // Remove crosshair update
     // Update crosshair position
-    const angleRad = Phaser.Math.DegToRad(angle);
-    crosshair.x = x + Math.cos(angleRad) * 40;
-    crosshair.y = y + Math.sin(angleRad) * 40;
-    crosshair.visible = true;
+    // let crosshair = (player === player1) ? player1Crosshair : player2Crosshair;
+    // const angleRad = Phaser.Math.DegToRad(angle);
+    // crosshair.x = x + Math.cos(angleRad) * 40;
+    // crosshair.y = y + Math.sin(angleRad) * 40;
+    // crosshair.visible = true;
     
     // Stop any existing tweens on the shield and player
     player.scene.tweens.killTweensOf(shield);
@@ -741,54 +655,6 @@ function respawnPlayer(player, x, y, angle) {
     });
 }
 
-// Reset the game
-function resetGame() {
-    // Reset player positions to the center of the visible area
-    player1.x = -200;
-    player1.y = 0;
-    player1.angle = 0;
-    player1.speed = 0;
-    player1.setData('isInvulnerable', false);
-    player1.setVisible(true);
-    player1.setActive(true);
-    player1.clearTint();
-    
-    player2.x = 200;
-    player2.y = 0;
-    player2.angle = 180;
-    player2.speed = 0;
-    player2.setData('isInvulnerable', false);
-    player2.setVisible(true);
-    player2.setActive(true);
-    player2.clearTint();
-    
-    // Reset shields
-    if (player1Shield) {
-        player1Shield.visible = false;
-    }
-    
-    if (player2Shield) {
-        player2Shield.visible = false;
-    }
-    
-    // Clear all bullets
-    player1Bullets.clear(true, true);
-    player2Bullets.clear(true, true);
-    
-    // Reset camera zoom
-    if (mainCamera) {
-        currentZoom = 1;
-        targetZoom = 1;
-        mainCamera.zoomTo(1, 0);
-        mainCamera.pan((player1.x + player2.x) / 2, (player1.y + player2.y) / 2, 0);
-    }
-    
-    // Update debug text
-    if (DEBUG_MODE && debugText) {
-        debugText.setText('Debug: Game reset');
-    }
-}
-
 // Calculate the optimal zoom level based on player positions
 function calculateOptimalZoom() {
     // Calculate the distance between the two players
@@ -796,13 +662,28 @@ function calculateOptimalZoom() {
     const dy = player2.y - player1.y;
     const distance = Math.sqrt(dx * dx + dy * dy);
     
-    // Calculate the diagonal of the screen
-    const screenDiagonal = Math.sqrt(config.width * config.width + config.height * config.height);
+    // Get the current viewport dimensions from the game
+    const viewportWidth = game.scale.gameSize.width;
+    const viewportHeight = game.scale.gameSize.height;
     
-    // Calculate the zoom level needed to fit both players with margin
-    // The formula ensures that as players get further apart, we zoom out
-    const distanceWithMargin = distance + (cameraMargin * 2);
-    let newZoom = screenDiagonal / distanceWithMargin;
+    // Calculate the aspect ratio
+    const aspectRatio = viewportWidth / viewportHeight;
+    
+    // Calculate the diagonal of the viewport
+    const viewportDiagonal = Math.sqrt(viewportWidth * viewportWidth + viewportHeight * viewportHeight);
+    
+    // Calculate the player spread in both dimensions
+    const playerSpreadX = Math.abs(dx);
+    const playerSpreadY = Math.abs(dy);
+    
+    // Calculate the player diagonal spread
+    const playerDiagonal = Math.sqrt(playerSpreadX * playerSpreadX + playerSpreadY * playerSpreadY);
+    
+    // Calculate zoom based on the diagonal with margin
+    let newZoom = viewportDiagonal / (playerDiagonal + cameraMargin * 2);
+    
+    // Add a safety factor to ensure players are always visible
+    newZoom *= 0.9;
     
     // Clamp the zoom level to min and max values
     newZoom = Phaser.Math.Clamp(newZoom, minZoom, maxZoom);
@@ -821,17 +702,22 @@ function updateCamera() {
     // Calculate the optimal zoom level
     targetZoom = calculateOptimalZoom();
     
+    // Increase zoom speed when zooming out (to prevent players from going off-screen)
+    // but keep it slower when zooming in (for smoother visuals)
+    const adaptiveZoomSpeed = targetZoom < currentZoom ? zoomSpeed * 2 : zoomSpeed;
+    
     // Smoothly interpolate current zoom towards target zoom
-    currentZoom = Phaser.Math.Linear(currentZoom, targetZoom, zoomSpeed);
+    currentZoom = Phaser.Math.Linear(currentZoom, targetZoom, adaptiveZoomSpeed);
     
     // Update camera position and zoom
-    mainCamera.pan(midX, midY, 0, 'Linear', true);
+    // Use a shorter duration for panning when players are far apart
+    const panDuration = 100;
+    mainCamera.pan(midX, midY, panDuration, 'Linear', true);
     mainCamera.zoomTo(currentZoom, 100);
     
     if (DEBUG_MODE && debugText) {
-        debugText.setText(`Debug: Zoom: ${currentZoom.toFixed(2)}, Distance: ${
-            Math.sqrt(Math.pow(player2.x - player1.x, 2) + Math.pow(player2.y - player1.y, 2)).toFixed(0)
-        }`);
+        const distance = Math.sqrt(Math.pow(player2.x - player1.x, 2) + Math.pow(player2.y - player1.y, 2));
+        debugText.setText(`Debug: Zoom: ${currentZoom.toFixed(2)}, Distance: ${distance.toFixed(0)}`);
         // Make sure debug text follows the camera
         debugText.setScrollFactor(0);
         player1ScoreText.setScrollFactor(0);
@@ -839,37 +725,63 @@ function updateCamera() {
     }
 }
 
-// Update crosshair positions
-function updateCrosshairs() {
-    if (player1Crosshair) {
-        const angleRad1 = Phaser.Math.DegToRad(player1.angle);
-        player1Crosshair.x = player1.x + Math.cos(angleRad1) * 40;
-        player1Crosshair.y = player1.y + Math.sin(angleRad1) * 40;
-    }
-
-    if (player2Crosshair) {
-        const angleRad2 = Phaser.Math.DegToRad(player2.angle);
-        player2Crosshair.x = player2.x + Math.cos(angleRad2) * 40;
-        player2Crosshair.y = player2.y + Math.sin(angleRad2) * 40;
-    }
-}
-
 // Create UI elements
 function createUI(scene) {
-    // Create score text
-    player1ScoreText = scene.add.text(16, 16, 'Blue: 0', { fontSize: '24px', fill: '#0000FF' });
-    player2ScoreText = scene.add.text(650, 16, 'Red: 0', { fontSize: '24px', fill: '#FF0000' });
+    // Get the current game size
+    const width = game.scale.gameSize.width;
+    const height = game.scale.gameSize.height;
+    
+    // Create score text - position based on viewport size
+    player1ScoreText = scene.add.text(20, 20, 'Blue: 0', { 
+        fontSize: '24px', 
+        fill: '#0000FF',
+        stroke: '#000000',
+        strokeThickness: 2
+    });
+    
+    // Position player 2 score at the right side of the screen
+    player2ScoreText = scene.add.text(width - 120, 20, 'Red: 0', { 
+        fontSize: '24px', 
+        fill: '#FF0000',
+        stroke: '#000000',
+        strokeThickness: 2
+    });
     
     // Fix UI elements to the camera (won't move when camera pans)
     player1ScoreText.setScrollFactor(0);
     player2ScoreText.setScrollFactor(0);
     
-    // Create debug text if in debug mode
+    // Create debug text if in debug mode - position at bottom of screen
     if (DEBUG_MODE) {
-        debugText = scene.add.text(16, 550, 'Debug: Game started', { fontSize: '16px', fill: '#00FF00' });
+        debugText = scene.add.text(20, height - 50, 'Debug: Game started', { 
+            fontSize: '16px', 
+            fill: '#00FF00',
+            stroke: '#000000',
+            strokeThickness: 1
+        });
         debugText.setScrollFactor(0);
     }
     
-    // Create reset key
-    resetKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
+    // Handle game resize events
+    scene.scale.on('resize', function(gameSize) {
+        // Get the new width and height
+        const width = gameSize.width;
+        const height = gameSize.height;
+        
+        // Reposition player 2 score
+        player2ScoreText.setPosition(width - 120, 20);
+        
+        // Reposition debug text if it exists
+        if (debugText) {
+            debugText.setPosition(20, height - 50);
+        }
+        
+        // Update camera bounds if needed
+        if (mainCamera) {
+            // Recalculate zoom to ensure players are visible with new dimensions
+            targetZoom = calculateOptimalZoom();
+            currentZoom = targetZoom;
+            mainCamera.zoomTo(currentZoom, 0);
+        }
+    });
 } 
