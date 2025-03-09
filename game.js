@@ -56,6 +56,13 @@ let shootSound;
 let explosionSound;
 let respawnSound;
 let debugText;
+let player1Thruster;
+let player2Thruster;
+
+// Physics variables
+const thrustPower = 5.8;  // Acceleration per frame when thrusting
+const maxSpeed = 500;        // Maximum velocity
+const drag = 0.99;         // Drag coefficient (0.99 = 1% slowdown per frame)
 
 // Camera variables
 let mainCamera;
@@ -93,57 +100,28 @@ function create() {
     // Create a grid background to visualize the infinite world
     createGridBackground(this);
     
-    // Create triangle graphics for players
-    const triangleGraphics = this.add.graphics();
-    
-    // Player 1 (blue triangle)
-    triangleGraphics.clear();
-    triangleGraphics.lineStyle(2, 0xffffff);
-    triangleGraphics.fillStyle(0x0000ff);
-    triangleGraphics.beginPath();
-    triangleGraphics.moveTo(0, -20);  // Point at top
-    triangleGraphics.lineTo(15, 20);  // Bottom right
-    triangleGraphics.lineTo(-15, 20); // Bottom left
-    triangleGraphics.closePath();
-    triangleGraphics.strokePath();
-    triangleGraphics.fillPath();
-    triangleGraphics.generateTexture('player1_triangle', 30, 40);
-    
-    // Player 2 (red triangle)
-    triangleGraphics.clear();
-    triangleGraphics.lineStyle(2, 0xffffff);
-    triangleGraphics.fillStyle(0xff0000);
-    triangleGraphics.beginPath();
-    triangleGraphics.moveTo(0, -20);  // Point at top
-    triangleGraphics.lineTo(15, 20);  // Bottom right
-    triangleGraphics.lineTo(-15, 20); // Bottom left
-    triangleGraphics.closePath();
-    triangleGraphics.strokePath();
-    triangleGraphics.fillPath();
-    triangleGraphics.generateTexture('player2_triangle', 30, 40);
-    
     // Create bullet graphics
-    triangleGraphics.clear();
-    triangleGraphics.lineStyle(1, 0xffff00);
-    triangleGraphics.fillStyle(0xffff00);
-    triangleGraphics.beginPath();
-    triangleGraphics.arc(0, 0, 3, 0, Math.PI * 2);
-    triangleGraphics.closePath();
-    triangleGraphics.strokePath();
-    triangleGraphics.fillPath();
-    triangleGraphics.generateTexture('bullet_yellow', 6, 6);
+    const bulletGraphics = this.add.graphics();
+    bulletGraphics.lineStyle(1, 0xffff00);
+    bulletGraphics.fillStyle(0xffff00);
+    bulletGraphics.beginPath();
+    bulletGraphics.arc(0, 0, 3, 0, Math.PI * 2);
+    bulletGraphics.closePath();
+    bulletGraphics.strokePath();
+    bulletGraphics.fillPath();
+    bulletGraphics.generateTexture('bullet_yellow', 6, 6);
     
     // Create shield graphics
-    triangleGraphics.clear();
-    triangleGraphics.lineStyle(2, 0x00ffff, 0.5);
-    triangleGraphics.beginPath();
-    triangleGraphics.arc(0, 0, 20, 0, Math.PI * 2);
-    triangleGraphics.closePath();
-    triangleGraphics.strokePath();
-    triangleGraphics.generateTexture('shield', 40, 40);
+    bulletGraphics.clear();
+    bulletGraphics.lineStyle(2, 0x00ffff, 0.5);
+    bulletGraphics.beginPath();
+    bulletGraphics.arc(0, 0, 20, 0, Math.PI * 2);
+    bulletGraphics.closePath();
+    bulletGraphics.strokePath();
+    bulletGraphics.generateTexture('shield', 40, 40);
     
     // Destroy the graphics object as we no longer need it
-    triangleGraphics.destroy();
+    bulletGraphics.destroy();
 
     // Set up initial player positions with randomness
     // Random distance between 350 and 450 units between players
@@ -161,30 +139,10 @@ function create() {
     const player2Y = Math.sin(axisAngle) * (startingDistance / 2);
     const player2Angle = Phaser.Math.RadToDeg(axisAngle) + 180; // Face toward player 1
 
-    // Create player 1 (blue)
-    player1 = this.physics.add.sprite(player1X, player1Y, 'player1_triangle');
-    // Remove world bounds constraint
-    player1.setCollideWorldBounds(false);
-    player1.angle = player1Angle;
-    player1.speed = 0;
-    player1.setData('isShooting', false);
-    player1.setData('lastShot', 0);
-    player1.setData('isInvulnerable', false);
-    player1.body.setSize(24, 32);
-    player1.body.setOffset(3, 4);
-
-    // Create player 2 (red)
-    player2 = this.physics.add.sprite(player2X, player2Y, 'player2_triangle');
-    // Remove world bounds constraint
-    player2.setCollideWorldBounds(false);
-    player2.angle = player2Angle;
-    player2.speed = 0;
-    player2.setData('isShooting', false);
-    player2.setData('lastShot', 0);
-    player2.setData('isInvulnerable', false);
-    player2.body.setSize(24, 32);
-    player2.body.setOffset(3, 4);
-
+    // Create player ships using the new function
+    player1 = createPlayerTriangle(this, player1X, player1Y, 0x0000ff, player1Angle);
+    player2 = createPlayerTriangle(this, player2X, player2Y, 0xff0000, player2Angle);
+    
     // Create bullet groups
     player1Bullets = this.physics.add.group({
         defaultKey: 'bullet_yellow',
@@ -306,50 +264,49 @@ function update(time) {
     }
 
     // Player 1 controls (arrow keys)
+    // Reset thruster state
+    player1.isThrusting = false;
+    
     if (cursors.up.isDown) {
-        // Increase speed
-        player1.speed = Phaser.Math.Clamp(player1.speed + 1, 0, 200);
-    } else if (cursors.down.isDown) {
-        // Decrease speed
-        player1.speed = Phaser.Math.Clamp(player1.speed - 1, -100, 200);
-    } else {
-        // Gradually slow down
-        if (player1.speed > 0) player1.speed -= 0.5;
-        else if (player1.speed < 0) player1.speed += 0.5;
+        // Apply thrust in the direction the player is facing
+        applyThrust(player1);
+        player1.isThrusting = true;
     }
 
     if (cursors.left.isDown) {
         // Turn left
-        player1.angle -= 3;
+        player1.body.angularVelocity = -150;
     } else if (cursors.right.isDown) {
         // Turn right
-        player1.angle += 3;
+        player1.body.angularVelocity = 150;
+    } else {
+        // Stop rotation
+        player1.body.angularVelocity = 0;
     }
 
     // Player 2 controls (WASD)
+    // Reset thruster state
+    player2.isThrusting = false;
+    
     if (wasdKeys.up.isDown) {
-        // Increase speed
-        player2.speed = Phaser.Math.Clamp(player2.speed + 1, 0, 200);
-    } else if (wasdKeys.down.isDown) {
-        // Decrease speed
-        player2.speed = Phaser.Math.Clamp(player2.speed - 1, -100, 200);
-    } else {
-        // Gradually slow down
-        if (player2.speed > 0) player2.speed -= 0.5;
-        else if (player2.speed < 0) player2.speed += 0.5;
+        // Apply thrust in the direction the player is facing
+        applyThrust(player2);
+        player2.isThrusting = true;
     }
 
     if (wasdKeys.left.isDown) {
         // Turn left
-        player2.angle -= 3;
+        player2.body.angularVelocity = -150;
     } else if (wasdKeys.right.isDown) {
         // Turn right
-        player2.angle += 3;
+        player2.body.angularVelocity = 150;
+    } else {
+        // Stop rotation
+        player2.body.angularVelocity = 0;
     }
 
-    // Move players based on their angle and speed
-    movePlayer(player1);
-    movePlayer(player2);
+    // Enforce maximum distance between players
+    enforceMaxDistance();
 
     // Update shield positions if they exist
     if (player1Shield && player1Shield.visible) {
@@ -384,8 +341,8 @@ function update(time) {
             
             // If bullet is too far from both players, remove it
             if (distToPlayer1 > maxBulletDistance && distToPlayer2 > maxBulletDistance) {
-            bullet.setActive(false);
-            bullet.setVisible(false);
+                bullet.setActive(false);
+                bullet.setVisible(false);
             }
         }
     });
@@ -398,8 +355,8 @@ function update(time) {
             
             // If bullet is too far from both players, remove it
             if (distToPlayer1 > maxBulletDistance && distToPlayer2 > maxBulletDistance) {
-            bullet.setActive(false);
-            bullet.setVisible(false);
+                bullet.setActive(false);
+                bullet.setVisible(false);
             }
         }
     });
@@ -408,41 +365,71 @@ function update(time) {
     updateCamera();
 }
 
-// Helper function to move a player based on angle and speed
-function movePlayer(player) {
+// Apply thrust to a player in the direction they're facing
+function applyThrust(player) {
+    // Get the angle the player is facing in radians
     const angleRad = Phaser.Math.DegToRad(player.angle);
     
-    // Calculate new position
-    const newX = player.x + Math.cos(angleRad) * player.speed * 0.01;
-    const newY = player.y + Math.sin(angleRad) * player.speed * 0.01;
+    // Calculate the thrust vector components
+    const thrustX = Math.cos(angleRad) * thrustPower;
+    const thrustY = Math.sin(angleRad) * thrustPower;
     
-    // Check if this would exceed the maximum distance between players
-    const otherPlayer = (player === player1) ? player2 : player1;
-    const newDistance = Phaser.Math.Distance.Between(newX, newY, otherPlayer.x, otherPlayer.y);
+    // Apply the thrust to the player's velocity
+    player.body.velocity.x += thrustX;
+    player.body.velocity.y += thrustY;
     
-    if (newDistance <= maxPlayerDistance) {
-        // If within allowed distance, update position
-        player.x = newX;
-        player.y = newY;
-    } else {
-        // Calculate how far beyond the limit the player is trying to go
-        const distanceRatio = maxPlayerDistance / newDistance;
+    // Ensure the player doesn't exceed maximum speed
+    const currentSpeed = Math.sqrt(player.body.velocity.x * player.body.velocity.x + 
+                                  player.body.velocity.y * player.body.velocity.y);
+    
+    if (currentSpeed > maxSpeed) {
+        // Scale down the velocity to the maximum speed
+        const scale = maxSpeed / currentSpeed;
+        player.body.velocity.x *= scale;
+        player.body.velocity.y *= scale;
+    }
+}
+
+// Enforce maximum distance between players
+function enforceMaxDistance() {
+    // Calculate the distance between the two players
+    const dx = player2.x - player1.x;
+    const dy = player2.y - player1.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    
+    if (distance > maxPlayerDistance) {
+        // Calculate the unit vector from player1 to player2
+        const unitX = dx / distance;
+        const unitY = dy / distance;
         
-        // The further they try to go, the stronger the rubber band effect
-        const slowdownFactor = distanceRatio * 0.5;
+        // Calculate how much we need to move each player
+        const moveDistance = (distance - maxPlayerDistance) / 2;
         
-        // Apply movement with slowdown
-        player.x += Math.cos(angleRad) * player.speed * 0.01 * slowdownFactor;
-        player.y += Math.sin(angleRad) * player.speed * 0.01 * slowdownFactor;
+        // Move player1 toward player2
+        player1.x += unitX * moveDistance;
+        player1.y += unitY * moveDistance;
         
-        // Reduce speed more aggressively when hitting the distance limit
-        player.speed *= 0.9;
+        // Move player2 toward player1
+        player2.x -= unitX * moveDistance;
+        player2.y -= unitY * moveDistance;
         
-        // Add a slight pull back toward the other player
-        const pullBackFactor = 0.01;
-        const angleToOther = Math.atan2(otherPlayer.y - player.y, otherPlayer.x - player.x);
-        player.x += Math.cos(angleToOther) * pullBackFactor * (newDistance - maxPlayerDistance);
-        player.y += Math.sin(angleToOther) * pullBackFactor * (newDistance - maxPlayerDistance);
+        // Apply a velocity reduction to simulate elastic collision
+        const reductionFactor = 0.8;
+        
+        // Calculate the dot product of velocity and direction vector for each player
+        const dot1 = player1.body.velocity.x * unitX + player1.body.velocity.y * unitY;
+        const dot2 = player2.body.velocity.x * -unitX + player2.body.velocity.y * -unitY;
+        
+        // If players are moving away from each other, reduce that component of velocity
+        if (dot1 > 0) {
+            player1.body.velocity.x -= unitX * dot1 * reductionFactor;
+            player1.body.velocity.y -= unitY * dot1 * reductionFactor;
+        }
+        
+        if (dot2 > 0) {
+            player2.body.velocity.x += unitX * dot2 * reductionFactor;
+            player2.body.velocity.y += unitY * dot2 * reductionFactor;
+        }
     }
 }
 
@@ -459,17 +446,23 @@ function shootBullet(player, bulletGroup, time) {
         // Play shoot sound
         shootSound.play({ volume: 0.5 });
         
+        // Get the angle the player is facing in radians
         const angleRad = Phaser.Math.DegToRad(player.angle);
         
-        // Start bullet at player's position
-        bullet.setPosition(player.x, player.y);
+        // Calculate the position at the tip of the triangle
+        // The tip offset is rotated based on the ship's current angle
+        const tipX = Math.cos(angleRad) * player.tipOffset.x - Math.sin(angleRad) * player.tipOffset.y;
+        const tipY = Math.sin(angleRad) * player.tipOffset.x + Math.cos(angleRad) * player.tipOffset.y;
+        
+        // Set bullet position at the tip of the triangle
+        bullet.setPosition(player.x + tipX, player.y + tipY);
         bullet.setActive(true);
         bullet.setVisible(true);
         
-        // Set bullet velocity (slower than before)
+        // Set bullet velocity (faster than the player's max speed)
         bullet.setVelocity(
-            Math.cos(angleRad) * 300,
-            Math.sin(angleRad) * 300
+            Math.cos(angleRad) * 300 + player.body.velocity.x * 0.5,
+            Math.sin(angleRad) * 300 + player.body.velocity.y * 0.5
         );
         
         // Set cooldown for shooting
@@ -555,13 +548,11 @@ function respawnPlayer(player, x, y, angle) {
     
     // Random starting angle (facing roughly toward the other player, but with some variation)
     // Calculate angle toward other player
-    const angleToOther = Phaser.Math.RadToDeg(
-        Math.atan2(otherPlayer.y - y, otherPlayer.x - x)
-    );
+    const angleToOther = Math.atan2(otherPlayer.y - y, otherPlayer.x - x);
     
     // Add some random variation (-45 to +45 degrees)
-    const angleVariation = (Math.random() * 90) - 45;
-    angle = angleToOther + angleVariation;
+    const angleVariation = (Math.random() * 90 - 45) * (Math.PI / 180);
+    angle = Phaser.Math.RadToDeg(angleToOther + angleVariation);
     
     // Log respawn details for debugging
     if (DEBUG_MODE && debugText) {
@@ -572,7 +563,10 @@ function respawnPlayer(player, x, y, angle) {
     player.x = x;
     player.y = y;
     player.angle = angle;
-    player.speed = 0;
+    player.body.velocity.x = 0;
+    player.body.velocity.y = 0;
+    player.body.angularVelocity = 0;
+    player.isThrusting = false;
     
     // Ensure player is visible
     player.visible = true;
@@ -587,14 +581,6 @@ function respawnPlayer(player, x, y, angle) {
     shield.y = player.y;
     shield.alpha = 0.7;
     shield.setScale(1.5);
-    
-    // Remove crosshair update
-    // Update crosshair position
-    // let crosshair = (player === player1) ? player1Crosshair : player2Crosshair;
-    // const angleRad = Phaser.Math.DegToRad(angle);
-    // crosshair.x = x + Math.cos(angleRad) * 40;
-    // crosshair.y = y + Math.sin(angleRad) * 40;
-    // crosshair.visible = true;
     
     // Stop any existing tweens on the shield and player
     player.scene.tweens.killTweensOf(shield);
@@ -784,4 +770,65 @@ function createUI(scene) {
             mainCamera.zoomTo(currentZoom, 0);
         }
     });
+}
+
+// Create player triangles with proper center pivot
+function createPlayerTriangle(scene, x, y, color, angle) {
+    // Define triangle vertices relative to center (0,0)
+    const size = 20; // Half size of the triangle
+    const vertices = [
+        { x: size, y: 0 },          // Tip (pointing right)
+        { x: -size, y: -size },     // Left top
+        { x: -size, y: size }       // Left bottom
+    ];
+    
+    // Calculate the bounds for the texture
+    const textureSize = size * 2.5; // Make texture big enough to contain the triangle
+    
+    // Create the triangle graphics object to generate the texture
+    const graphics = scene.add.graphics();
+    
+    // Position the graphics at the center of the texture
+    graphics.clear();
+    graphics.fillStyle(color, 1);
+    graphics.lineStyle(2, 0xffffff, 1);
+    
+    // Draw the triangle centered in the texture
+    graphics.beginPath();
+    graphics.moveTo(vertices[0].x + textureSize/2, vertices[0].y + textureSize/2);
+    graphics.lineTo(vertices[1].x + textureSize/2, vertices[1].y + textureSize/2);
+    graphics.lineTo(vertices[2].x + textureSize/2, vertices[2].y + textureSize/2);
+    graphics.closePath();
+    graphics.fillPath();
+    graphics.strokePath();
+    
+    // Create unique key for this triangle
+    const key = 'triangle_' + color.toString(16);
+    
+    // Generate texture from the graphics
+    graphics.generateTexture(key, textureSize, textureSize);
+    graphics.destroy();
+    
+    // Create the ship using the generated texture
+    const ship = scene.add.sprite(x, y, key);
+    ship.setOrigin(0.5, 0.5); // Set origin to center for proper rotation
+    
+    // Add physics
+    scene.physics.add.existing(ship);
+    ship.body.setDamping(true);
+    ship.body.setDrag(drag);
+    ship.body.setMaxVelocity(maxSpeed, maxSpeed);
+    ship.body.setAngularDrag(0.9);
+    ship.angle = angle;
+    
+    // Add custom properties
+    ship.isThrusting = false;
+    ship.setData('isShooting', false);
+    ship.setData('lastShot', 0);
+    ship.setData('isInvulnerable', false);
+    
+    // Store the tip position for bullet spawning (in local space)
+    ship.tipOffset = { x: size, y: 0 };
+    
+    return ship;
 } 
