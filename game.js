@@ -102,12 +102,12 @@ let pendingInputs = []; // Store inputs that haven't been processed by server
 
 // Camera variables
 let mainCamera;
-let targetZoom = 1;
-let currentZoom = 1;
-let zoomSpeed = 0.05;
-let minZoom = 0.5;
-let maxZoom = 2;
-let cameraMargin = 150; // Increased margin to keep around players
+let targetZoom = 0.2; // Default very zoomed-out level
+let currentZoom = 0.2;
+let zoomSpeed = 0.05; // Smooth transition speed
+let minZoom = 0.2; // Minimum zoom (most zoomed out)
+let maxZoom = 1.1; // Maximum zoom when players are close (more zoomed in)
+let cameraMargin = 100; // Margin around players
 
 // Preload game assets
 function preload() {
@@ -471,43 +471,79 @@ function update(time, delta) {
 function updateMultiplayerCamera() {
     if (!myPlayer || !mainCamera) return;
 
-    // Get all active players including our player
-    const allPlayers = [myPlayer, ...Object.values(otherPlayers)];
+    // Default to focusing on the player with a zoomed-out view
+    let targetX = myPlayer.x;
+    let targetY = myPlayer.y;
+    let newTargetZoom = minZoom; // Start with the most zoomed out view
     
-    // Calculate the bounding box of all players
-    let minX = Infinity;
-    let minY = Infinity;
-    let maxX = -Infinity;
-    let maxY = -Infinity;
-
-    allPlayers.forEach(player => {
-        minX = Math.min(minX, player.x);
-        minY = Math.min(minY, player.y);
-        maxX = Math.max(maxX, player.x);
-        maxY = Math.max(maxY, player.y);
+    // Find nearby players (within a certain distance)
+    const nearbyPlayers = [];
+    const detectionRadius = 600; // How far to detect other players for zoom-in
+    
+    Object.values(otherPlayers).forEach(player => {
+        const distance = Phaser.Math.Distance.Between(myPlayer.x, myPlayer.y, player.x, player.y);
+        if (distance < detectionRadius) {
+            nearbyPlayers.push({
+                player: player,
+                distance: distance
+            });
+        }
     });
-
-    // Calculate center point
-    const centerX = (minX + maxX) / 2;
-    const centerY = (minY + maxY) / 2;
-
-    // Calculate required zoom level to fit all players
-    const width = maxX - minX + cameraMargin * 2;
-    const height = maxY - minY + cameraMargin * 2;
-    const widthZoom = game.scale.width / width;
-    const heightZoom = game.scale.height / height;
-    targetZoom = Math.min(maxZoom, Math.max(minZoom, Math.min(widthZoom, heightZoom)));
     
-    // Smoothly interpolate current zoom towards target zoom
+    // If there are nearby players, adjust the camera
+    if (nearbyPlayers.length > 0) {
+        // Sort players by distance (closest first)
+        nearbyPlayers.sort((a, b) => a.distance - b.distance);
+        
+        // Calculate the bounding box of the player and nearby players
+        let minX = myPlayer.x;
+        let minY = myPlayer.y;
+        let maxX = myPlayer.x;
+        let maxY = myPlayer.y;
+
+        // Only include the closest player for camera calculations
+        const closestPlayer = nearbyPlayers[0].player;
+        minX = Math.min(minX, closestPlayer.x);
+        minY = Math.min(minY, closestPlayer.y);
+        maxX = Math.max(maxX, closestPlayer.x);
+        maxY = Math.max(maxY, closestPlayer.y);
+
+        // Calculate center point between player and closest opponent
+        const centerX = (minX + maxX) / 2;
+        const centerY = (minY + maxY) / 2;
+        
+        // Bias the camera position toward the player
+        targetX = myPlayer.x * 0.7 + centerX * 0.3;
+        targetY = myPlayer.y * 0.7 + centerY * 0.3;
+        
+        // Calculate required zoom level based on distance between players
+        const width = (maxX - minX) + cameraMargin * 2;
+        const height = (maxY - minY) + cameraMargin * 2;
+        const widthZoom = game.scale.width / width;
+        const heightZoom = game.scale.height / height;
+        
+        // Use the more constrained dimension for zoom
+        const calculatedZoom = Math.min(widthZoom, heightZoom);
+        
+        // Clamp zoom between min and max values
+        newTargetZoom = Math.min(maxZoom, Math.max(minZoom, calculatedZoom));
+    }
+    
+    // Smoothly transition to the target zoom
+    targetZoom = Phaser.Math.Linear(targetZoom, newTargetZoom, 0.1);
     currentZoom = Phaser.Math.Linear(currentZoom, targetZoom, zoomSpeed);
 
-    // Update camera
-    mainCamera.pan(centerX, centerY, 100, 'Linear', true);
+    // Update camera position and zoom
+    mainCamera.pan(targetX, targetY, 100, 'Linear', true);
     mainCamera.zoomTo(currentZoom, 100);
     
+    // Update debug text if enabled
     if (DEBUG_MODE && debugText) {
-        debugText.setText(`Players: ${allPlayers.length}, Zoom: ${currentZoom.toFixed(2)}`);
+        const playerCount = Object.keys(otherPlayers).length + 1;
+        const nearbyCount = nearbyPlayers.length;
+        debugText.setText(`Players: ${playerCount}, Nearby: ${nearbyCount}, Zoom: ${currentZoom.toFixed(3)}`);
         debugText.setScrollFactor(0);
+        debugText.setPosition(20, mainCamera.height - 40);
     }
 }
 

@@ -101,21 +101,20 @@ io.on('connection', (socket) => {
     });
 });
 
-// Game loop - update rate from shared config
+// Update game state at a fixed interval
 setInterval(() => {
-    updateGameState();
-    
-    // Create a compressed version of the game state to reduce network traffic
+    // Compress game state to reduce network traffic
     const compressedState = {
         players: {},
         bullets: []
     };
-    
-    // Only send necessary player data
-    Object.keys(gameState.players).forEach(id => {
-        const player = gameState.players[id];
-        compressedState.players[id] = {
-            id: player.id,
+
+    // Add player data
+    Object.keys(gameState.players).forEach(playerId => {
+        const player = gameState.players[playerId];
+        
+        // Only send necessary player data, avoiding circular references
+        compressedState.players[playerId] = {
             x: player.x,
             y: player.y,
             angle: player.angle,
@@ -124,20 +123,28 @@ setInterval(() => {
             lastProcessedInput: player.lastProcessedInput
         };
     });
-    
-    // Include all bullet data
+
+    // Add bullet data
     gameState.bullets.forEach(bullet => {
+        // Only send necessary bullet data, avoiding circular references
         compressedState.bullets.push({
             x: bullet.x,
             y: bullet.y,
-            velocityX: bullet.velocityX,
-            velocityY: bullet.velocityY,
             ownerId: bullet.ownerId,
             createdAt: bullet.createdAt
         });
     });
-    
+
+    // Log the size of the game state periodically
+    if (DEBUG_MODE && frameCount % 300 === 0) {
+        console.log(`Game state: ${Object.keys(gameState.players).length} players, ${gameState.bullets.length} bullets`);
+        console.log(`Players: ${Object.keys(gameState.players).join(', ')}`);
+    }
+
+    // Send game state to all connected clients
     io.emit('gameStateUpdate', compressedState);
+    
+    frameCount++;
 }, 1000 / NETWORK.updateRate);
 
 function updateGameState() {
@@ -163,29 +170,28 @@ function updateGameState() {
 }
 
 function createBullet(player) {
-    const angleRad = player.angle * (Math.PI / 180);
-    
     // Calculate bullet spawn position at the tip of the ship
-    const tipDistance = 20; // Distance from ship center to tip
-    const bulletX = player.x + Math.cos(angleRad) * tipDistance;
-    const bulletY = player.y + Math.sin(angleRad) * tipDistance;
+    const angleRad = player.angle * (Math.PI / 180);
+    const spawnDistance = 30; // Distance from player center to spawn point
     
-    // Create the bullet with proper velocity
+    const bulletX = player.x + Math.cos(angleRad) * spawnDistance;
+    const bulletY = player.y + Math.sin(angleRad) * spawnDistance;
+    
+    // Create bullet with only necessary properties
     const bullet = {
         x: bulletX,
         y: bulletY,
-        velocityX: Math.cos(angleRad) * GAME.bulletSpeed + player.velocity.x * 0.5,
-        velocityY: Math.sin(angleRad) * GAME.bulletSpeed + player.velocity.y * 0.5,
+        velocityX: Math.cos(angleRad) * GAME.bulletSpeed,
+        velocityY: Math.sin(angleRad) * GAME.bulletSpeed,
         ownerId: player.id,
         createdAt: Date.now()
     };
     
     gameState.bullets.push(bullet);
     
-    // Log for debugging
-    console.log(`Player ${player.id} fired a bullet at position (${bulletX.toFixed(2)}, ${bulletY.toFixed(2)})`);
-    
-    return bullet;
+    if (DEBUG_MODE) {
+        console.log(`Bullet created by ${player.id} at (${bulletX.toFixed(2)}, ${bulletY.toFixed(2)})`);
+    }
 }
 
 function updateBullets() {
@@ -280,6 +286,23 @@ function getRandomSpawnPoint() {
 
 // Start server
 const PORT = process.env.PORT || 3000;
-http.listen(PORT, () => {
+http.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running on port ${PORT}`);
-}); 
+    console.log(`Access from other devices at http://${getLocalIpAddress()}:${PORT}`);
+});
+
+// Add this function to get your local IP address to display in the console
+function getLocalIpAddress() {
+    const { networkInterfaces } = require('os');
+    const nets = networkInterfaces();
+    
+    for (const name of Object.keys(nets)) {
+        for (const net of nets[name]) {
+            // Skip over non-IPv4 and internal (loopback) addresses
+            if (net.family === 'IPv4' && !net.internal) {
+                return net.address;
+            }
+        }
+    }
+    return 'localhost'; // Fallback
+} 
