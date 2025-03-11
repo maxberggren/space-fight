@@ -37,32 +37,68 @@ window.addEventListener('resize', function() {
     game.scale.resize(window.innerWidth, window.innerHeight);
 });
 
+// Load shared configuration
+let PHYSICS, WORLD, GAME, NETWORK;
+
+// Fetch the shared configuration
+fetch('/shared-config.js')
+    .then(response => response.text())
+    .then(text => {
+        // Extract the configuration objects from the text
+        const configText = text.replace('// shared-config.js', '');
+        
+        // Create a function to evaluate the configuration
+        const configFunc = new Function(`
+            ${configText}
+            return { PHYSICS, WORLD, GAME, NETWORK };
+        `);
+        
+        // Get the configuration objects
+        const config = configFunc();
+        PHYSICS = config.PHYSICS;
+        WORLD = config.WORLD;
+        GAME = config.GAME;
+        NETWORK = config.NETWORK;
+        
+        console.log('Shared configuration loaded:', config);
+    })
+    .catch(error => {
+        console.error('Error loading shared configuration:', error);
+        // Fallback values if loading fails
+        PHYSICS = {
+            thrustPower: 0.01,
+            maxSpeed: 1,
+            drag: 0.9
+        };
+        WORLD = {
+            size: 10000,
+            maxPlayerDistance: 1200
+        };
+        GAME = {
+            bulletSpeed: 0.6,
+            bulletLifetime: 2000,
+            respawnInvulnerabilityTime: 3000,
+            hitRadius: 20
+        };
+        NETWORK = {
+            updateRate: 30
+        };
+    });
+
 // Game variables
-let player1;
-let player2;
-let player1Score = 0;
-let player2Score = 0;
-let player1ScoreText;
-let player2ScoreText;
-let player1Bullets;
-let player2Bullets;
-let player1Shield;
-let player2Shield;
+let socket;
+let myPlayer;
+let otherPlayers = {};
+let bullets;
 let cursors;
-let wasdKeys;
-let shootKey1;
-let shootKey2;
+let shootKey;
 let shootSound;
 let explosionSound;
 let respawnSound;
 let debugText;
-let player1Thruster;
-let player2Thruster;
-
-// Physics variables
-const thrustPower = 5.8;  // Acceleration per frame when thrusting
-const maxSpeed = 500;        // Maximum velocity
-const drag = 0.99;         // Drag coefficient (0.99 = 1% slowdown per frame)
+let scoreTexts = {};
+let sequenceNumber = 0; // Add sequence number for input prediction
+let pendingInputs = []; // Store inputs that haven't been processed by server
 
 // Camera variables
 let mainCamera;
@@ -72,10 +108,6 @@ let zoomSpeed = 0.05;
 let minZoom = 0.5;
 let maxZoom = 2;
 let cameraMargin = 150; // Increased margin to keep around players
-let maxPlayerDistance = 1200; // Reduced maximum distance players can get from each other
-
-// Infinite world size (much larger than visible area)
-const WORLD_SIZE = 10000;
 
 // Preload game assets
 function preload() {
@@ -91,7 +123,9 @@ function preload() {
 // Create game objects
 function create() {
     // Set up the world bounds to be much larger than the visible area
-    this.physics.world.setBounds(-WORLD_SIZE/2, -WORLD_SIZE/2, WORLD_SIZE, WORLD_SIZE);
+    // Use WORLD.size if available, otherwise use fallback
+    const worldSize = WORLD ? WORLD.size : 10000;
+    this.physics.world.setBounds(-worldSize/2, -worldSize/2, worldSize, worldSize);
     
     // Set up the main camera
     mainCamera = this.cameras.main;
@@ -102,14 +136,14 @@ function create() {
     
     // Create bullet graphics
     const bulletGraphics = this.add.graphics();
-    bulletGraphics.lineStyle(1, 0xffff00);
-    bulletGraphics.fillStyle(0xffff00);
+    bulletGraphics.fillStyle(0xffff00, 1);
+    bulletGraphics.lineStyle(2, 0xffffff, 1);
     bulletGraphics.beginPath();
-    bulletGraphics.arc(0, 0, 3, 0, Math.PI * 2);
+    bulletGraphics.arc(0, 0, 4, 0, Math.PI * 2);
     bulletGraphics.closePath();
-    bulletGraphics.strokePath();
     bulletGraphics.fillPath();
-    bulletGraphics.generateTexture('bullet_yellow', 6, 6);
+    bulletGraphics.strokePath();
+    bulletGraphics.generateTexture('bullet_yellow', 10, 10);
     
     // Create shield graphics
     bulletGraphics.clear();
@@ -123,72 +157,21 @@ function create() {
     // Destroy the graphics object as we no longer need it
     bulletGraphics.destroy();
 
-    // Set up initial player positions with randomness
-    // Random distance between 350 and 450 units between players
-    const startingDistance = 350 + Math.random() * 100;
+    // Initialize socket connection
+    socket = io();
     
-    // Random angle for the axis between players
-    const axisAngle = Math.random() * Math.PI * 2;
-    
-    // Calculate positions based on the random angle and distance
-    const player1X = -Math.cos(axisAngle) * (startingDistance / 2);
-    const player1Y = -Math.sin(axisAngle) * (startingDistance / 2);
-    const player1Angle = Phaser.Math.RadToDeg(axisAngle); // Face toward player 2
-    
-    const player2X = Math.cos(axisAngle) * (startingDistance / 2);
-    const player2Y = Math.sin(axisAngle) * (startingDistance / 2);
-    const player2Angle = Phaser.Math.RadToDeg(axisAngle) + 180; // Face toward player 1
-
-    // Create player ships using the new function
-    player1 = createPlayerTriangle(this, player1X, player1Y, 0x0000ff, player1Angle);
-    player2 = createPlayerTriangle(this, player2X, player2Y, 0xff0000, player2Angle);
-    
-    // Create bullet groups
-    player1Bullets = this.physics.add.group({
-        defaultKey: 'bullet_yellow',
-        maxSize: 10
-    });
-
-    player2Bullets = this.physics.add.group({
-        defaultKey: 'bullet_yellow',
-        maxSize: 10
-    });
-
-    // Initialize shields
-    player1Shield = this.add.image(player1.x, player1.y, 'shield');
-    player1Shield.setScale(1.5);
-    player1Shield.setAlpha(0.5);
-    player1Shield.visible = false;
-
-    player2Shield = this.add.image(player2.x, player2.y, 'shield');
-    player2Shield.setScale(1.5);
-    player2Shield.setAlpha(0.5);
-    player2Shield.visible = false;
-
-    // Store scene reference for later use
-    this.gameScene = this;
-
-    // Set up collision detection
-    this.physics.add.overlap(player1Bullets, player2, bulletHitPlayer2, null, this);
-    this.physics.add.overlap(player2Bullets, player1, bulletHitPlayer1, null, this);
+    // Set up socket event handlers
+    setupSocketHandlers(this);
 
     // Set up input controls
     cursors = this.input.keyboard.createCursorKeys();
+    shootKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
     
-    // WASD keys for player 2
-    wasdKeys = {
-        up: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),
-        down: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),
-        left: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),
-        right: this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D)
-    };
-    
-    // Shoot keys
-    shootKey1 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-    shootKey2 = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
-    
-    // Create UI elements
-    createUI(this);
+    // Create bullet group
+    bullets = this.physics.add.group({
+        defaultKey: 'bullet_yellow',
+        maxSize: 30
+    });
     
     // Load sound effects
     shootSound = this.sound.add('shoot');
@@ -202,6 +185,160 @@ function create() {
         frameRate: 20,
         hideOnComplete: true
     });
+    
+    // Create debug text
+    if (DEBUG_MODE) {
+        debugText = this.add.text(20, this.cameras.main.height - 40, 'Debug: Game started', {
+            fontSize: '16px',
+            fill: '#00FF00',
+            stroke: '#000000',
+            strokeThickness: 1
+        });
+        debugText.setScrollFactor(0);
+    }
+}
+
+function setupSocketHandlers(scene) {
+    socket.on('connect', () => {
+        console.log('Connected to server');
+    });
+
+    socket.on('gameState', (state) => {
+        // Handle initial game state
+        Object.keys(state.players).forEach(playerId => {
+            const playerData = state.players[playerId];
+            if (playerId === socket.id) {
+                // Create our player
+                myPlayer = createPlayerTriangle(scene, playerData.x, playerData.y, 0x0000ff, playerData.angle);
+                myPlayer.id = playerId;
+                // Set initial invulnerability state
+                updatePlayerInvulnerability(myPlayer, playerData.invulnerable);
+            } else {
+                // Create other players
+                const otherPlayer = createPlayerTriangle(scene, playerData.x, playerData.y, 0xff0000, playerData.angle);
+                otherPlayer.id = playerId;
+                otherPlayers[playerId] = otherPlayer;
+                // Set initial invulnerability state
+                updatePlayerInvulnerability(otherPlayer, playerData.invulnerable);
+                createScoreText(scene, playerId);
+            }
+        });
+    });
+
+    socket.on('playerJoined', (playerData) => {
+        if (playerData.id !== socket.id) {
+            const newPlayer = createPlayerTriangle(scene, playerData.x, playerData.y, 0xff0000, playerData.angle);
+            newPlayer.id = playerData.id;
+            otherPlayers[playerData.id] = newPlayer;
+            createScoreText(scene, playerData.id);
+        }
+    });
+
+    socket.on('playerLeft', (playerId) => {
+        if (otherPlayers[playerId]) {
+            otherPlayers[playerId].destroy();
+            delete otherPlayers[playerId];
+            if (scoreTexts[playerId]) {
+                scoreTexts[playerId].destroy();
+                delete scoreTexts[playerId];
+            }
+        }
+    });
+
+    socket.on('gameStateUpdate', (state) => {
+        // Update all players
+        Object.keys(state.players).forEach(playerId => {
+            const playerData = state.players[playerId];
+            
+            if (playerId === socket.id && myPlayer) {
+                // Update score
+                updateScoreText(playerId, playerData.score);
+                
+                // Update invulnerability state with visual effect
+                updatePlayerInvulnerability(myPlayer, playerData.invulnerable);
+                
+                // Server reconciliation
+                if (playerData.lastProcessedInput) {
+                    // Remove older inputs that have been processed
+                    pendingInputs = pendingInputs.filter(input => 
+                        input.sequenceNumber > playerData.lastProcessedInput
+                    );
+                    
+                    // Reset position to server position
+                    myPlayer.x = playerData.x;
+                    myPlayer.y = playerData.y;
+                    myPlayer.body.velocity.x = 0;
+                    myPlayer.body.velocity.y = 0;
+                    
+                    // Re-apply all pending inputs
+                    pendingInputs.forEach(input => {
+                        applyInput(myPlayer, input);
+                    });
+                } else {
+                    // Smooth position correction if needed (for older server versions)
+                    const distance = Phaser.Math.Distance.Between(myPlayer.x, myPlayer.y, playerData.x, playerData.y);
+                    if (distance > 100) {
+                        myPlayer.x = playerData.x;
+                        myPlayer.y = playerData.y;
+                    }
+                }
+            } else if (otherPlayers[playerId]) {
+                // Update other players with interpolation for smoother movement
+                const otherPlayer = otherPlayers[playerId];
+                
+                // Store current position for interpolation
+                otherPlayer.oldX = otherPlayer.x;
+                otherPlayer.oldY = otherPlayer.y;
+                otherPlayer.oldAngle = otherPlayer.angle;
+                
+                // Set target position from server
+                otherPlayer.targetX = playerData.x;
+                otherPlayer.targetY = playerData.y;
+                otherPlayer.targetAngle = playerData.angle;
+                
+                // Reset interpolation timer
+                otherPlayer.interpTime = 0;
+                
+                // Update invulnerability state with visual effect
+                updatePlayerInvulnerability(otherPlayer, playerData.invulnerable);
+                updateScoreText(playerId, playerData.score);
+            }
+        });
+
+        // Update bullets
+        updateBulletsFromState(scene, state.bullets);
+    });
+}
+
+// Function to update player invulnerability with visual feedback
+function updatePlayerInvulnerability(player, isInvulnerable) {
+    // Store previous state to detect changes
+    const wasInvulnerable = player.getData('isInvulnerable');
+    
+    // Update the data
+    player.setData('isInvulnerable', isInvulnerable);
+    
+    // Visual feedback for invulnerability
+    if (isInvulnerable) {
+        // Add shield effect if not already present
+        if (!player.shield) {
+            player.shield = player.scene.add.sprite(player.x, player.y, 'shield');
+            player.shield.setAlpha(0.7);
+            console.log(`Shield added to player ${player.id}`);
+        }
+    } else {
+        // Remove shield effect if present
+        if (player.shield) {
+            player.shield.destroy();
+            player.shield = null;
+            console.log(`Shield removed from player ${player.id}`);
+        }
+    }
+    
+    // Log state change
+    if (wasInvulnerable !== isInvulnerable) {
+        console.log(`Player ${player.id} invulnerability changed: ${isInvulnerable}`);
+    }
 }
 
 // Create a grid background to help visualize the infinite world
@@ -245,531 +382,201 @@ function createGridBackground(scene) {
 }
 
 // Update game state
-function update(time) {
-    // Safety check - ensure players are visible
-    if (!player1.visible) {
-        player1.visible = true;
-        player1.alpha = 1;
-        if (DEBUG_MODE && debugText) {
-            debugText.setText('Debug: Fixed player1 visibility');
-        }
-    }
-    
-    if (!player2.visible) {
-        player2.visible = true;
-        player2.alpha = 1;
-        if (DEBUG_MODE && debugText) {
-            debugText.setText('Debug: Fixed player2 visibility');
-        }
-    }
+function update(time, delta) {
+    if (!myPlayer || !socket || !PHYSICS) return;
 
-    // Player 1 controls (arrow keys)
-    // Reset thruster state
-    player1.isThrusting = false;
+    // Handle player input
+    const input = {
+        isThrusting: false,
+        angle: myPlayer.angle,
+        isShooting: false,
+        sequenceNumber: sequenceNumber++ // Add sequence number to track inputs
+    };
     
     if (cursors.up.isDown) {
-        // Apply thrust in the direction the player is facing
-        applyThrust(player1);
-        player1.isThrusting = true;
+        input.isThrusting = true;
+        myPlayer.isThrusting = true;
+    } else {
+        myPlayer.isThrusting = false;
     }
 
     if (cursors.left.isDown) {
-        // Turn left
-        player1.body.angularVelocity = -150;
+        myPlayer.angle -= 4;
+        input.angle = myPlayer.angle;
     } else if (cursors.right.isDown) {
-        // Turn right
-        player1.body.angularVelocity = 150;
-    } else {
-        // Stop rotation
-        player1.body.angularVelocity = 0;
+        myPlayer.angle += 4;
+        input.angle = myPlayer.angle;
     }
 
-    // Player 2 controls (WASD)
-    // Reset thruster state
-    player2.isThrusting = false;
-    
-    if (wasdKeys.up.isDown) {
-        // Apply thrust in the direction the player is facing
-        applyThrust(player2);
-        player2.isThrusting = true;
-    }
-
-    if (wasdKeys.left.isDown) {
-        // Turn left
-        player2.body.angularVelocity = -150;
-    } else if (wasdKeys.right.isDown) {
-        // Turn right
-        player2.body.angularVelocity = 150;
-    } else {
-        // Stop rotation
-        player2.body.angularVelocity = 0;
-    }
-
-    // Enforce maximum distance between players
-    enforceMaxDistance();
-
-    // Update shield positions if they exist
-    if (player1Shield && player1Shield.visible) {
-        player1Shield.x = player1.x;
-        player1Shield.y = player1.y;
-        player1Shield.rotation += 0.02;
-    }
-
-    if (player2Shield && player2Shield.visible) {
-        player2Shield.x = player2.x;
-        player2Shield.y = player2.y;
-        player2Shield.rotation += 0.02;
-    }
-
-    // Handle shooting
-    if (Phaser.Input.Keyboard.JustDown(shootKey1) && time > player1.getData('lastShot') + 500) {
-        shootBullet(player1, player1Bullets, time);
-    }
-
-    if (Phaser.Input.Keyboard.JustDown(shootKey2) && time > player2.getData('lastShot') + 500) {
-        shootBullet(player2, player2Bullets, time);
-    }
-
-    // Update bullet positions and remove bullets that are too far from both players
-    const maxBulletDistance = 2000; // Maximum distance a bullet can travel before being removed
-    
-    player1Bullets.getChildren().forEach(bullet => {
-        if (bullet.active) {
-            // Calculate distance from both players
-            const distToPlayer1 = Phaser.Math.Distance.Between(bullet.x, bullet.y, player1.x, player1.y);
-            const distToPlayer2 = Phaser.Math.Distance.Between(bullet.x, bullet.y, player2.x, player2.y);
+    // Check for shooting with spacebar
+    if (Phaser.Input.Keyboard.JustDown(shootKey)) {
+        input.isShooting = true;
+        console.log("Spacebar pressed - shooting");
+        
+        // Visual feedback for shooting attempt
+        if (!myPlayer.getData('isInvulnerable')) {
+            const now = time;
+            const lastShot = myPlayer.getData('lastShot') || 0;
+            const cooldown = GAME?.shootCooldown || 500;
             
-            // If bullet is too far from both players, remove it
-            if (distToPlayer1 > maxBulletDistance && distToPlayer2 > maxBulletDistance) {
-                bullet.setActive(false);
-                bullet.setVisible(false);
+            if (now - lastShot > cooldown) {
+                myPlayer.setData('lastShot', now);
+                // Flash the player briefly to indicate shooting attempt
+                myPlayer.setTint(0xffff00);
+                setTimeout(() => myPlayer.clearTint(), 50);
             }
         }
-    });
+    }
 
-    player2Bullets.getChildren().forEach(bullet => {
-        if (bullet.active) {
-            // Calculate distance from both players
-            const distToPlayer1 = Phaser.Math.Distance.Between(bullet.x, bullet.y, player1.x, player1.y);
-            const distToPlayer2 = Phaser.Math.Distance.Between(bullet.x, bullet.y, player2.x, player2.y);
+    // Apply input locally for immediate feedback
+    applyInput(myPlayer, input);
+    
+    // Save this input for later reconciliation
+    pendingInputs.push(input);
+    
+    // Send input to server
+    socket.emit('playerInput', input);
+
+    // Update camera
+    updateMultiplayerCamera();
+
+    // Update shield positions for all players
+    if (myPlayer.shield) {
+        myPlayer.shield.x = myPlayer.x;
+        myPlayer.shield.y = myPlayer.y;
+    }
+    
+    Object.values(otherPlayers).forEach(player => {
+        if (player.shield) {
+            player.shield.x = player.x;
+            player.shield.y = player.y;
+        }
+        
+        if (player.oldX !== undefined && player.targetX !== undefined) {
+            // Increment interpolation timer
+            player.interpTime = Math.min(1, (player.interpTime || 0) + (delta / 1000) * 15); // 15 is the interpolation speed factor
             
-            // If bullet is too far from both players, remove it
-            if (distToPlayer1 > maxBulletDistance && distToPlayer2 > maxBulletDistance) {
-                bullet.setActive(false);
-                bullet.setVisible(false);
-            }
-        }
-    });
-
-    // Update camera position and zoom
-    updateCamera();
-}
-
-// Apply thrust to a player in the direction they're facing
-function applyThrust(player) {
-    // Get the angle the player is facing in radians
-    const angleRad = Phaser.Math.DegToRad(player.angle);
-    
-    // Calculate the thrust vector components
-    const thrustX = Math.cos(angleRad) * thrustPower;
-    const thrustY = Math.sin(angleRad) * thrustPower;
-    
-    // Apply the thrust to the player's velocity
-    player.body.velocity.x += thrustX;
-    player.body.velocity.y += thrustY;
-    
-    // Ensure the player doesn't exceed maximum speed
-    const currentSpeed = Math.sqrt(player.body.velocity.x * player.body.velocity.x + 
-                                  player.body.velocity.y * player.body.velocity.y);
-    
-    if (currentSpeed > maxSpeed) {
-        // Scale down the velocity to the maximum speed
-        const scale = maxSpeed / currentSpeed;
-        player.body.velocity.x *= scale;
-        player.body.velocity.y *= scale;
-    }
-}
-
-// Enforce maximum distance between players
-function enforceMaxDistance() {
-    // Calculate the distance between the two players
-    const dx = player2.x - player1.x;
-    const dy = player2.y - player1.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    
-    if (distance > maxPlayerDistance) {
-        // Calculate the unit vector from player1 to player2
-        const unitX = dx / distance;
-        const unitY = dy / distance;
-        
-        // Calculate how much we need to move each player
-        const moveDistance = (distance - maxPlayerDistance) / 2;
-        
-        // Move player1 toward player2
-        player1.x += unitX * moveDistance;
-        player1.y += unitY * moveDistance;
-        
-        // Move player2 toward player1
-        player2.x -= unitX * moveDistance;
-        player2.y -= unitY * moveDistance;
-        
-        // Apply a velocity reduction to simulate elastic collision
-        const reductionFactor = 0.8;
-        
-        // Calculate the dot product of velocity and direction vector for each player
-        const dot1 = player1.body.velocity.x * unitX + player1.body.velocity.y * unitY;
-        const dot2 = player2.body.velocity.x * -unitX + player2.body.velocity.y * -unitY;
-        
-        // If players are moving away from each other, reduce that component of velocity
-        if (dot1 > 0) {
-            player1.body.velocity.x -= unitX * dot1 * reductionFactor;
-            player1.body.velocity.y -= unitY * dot1 * reductionFactor;
-        }
-        
-        if (dot2 > 0) {
-            player2.body.velocity.x += unitX * dot2 * reductionFactor;
-            player2.body.velocity.y += unitY * dot2 * reductionFactor;
-        }
-    }
-}
-
-// Helper function to shoot a bullet
-function shootBullet(player, bulletGroup, time) {
-    // Don't allow shooting if player is invulnerable
-    if (player.getData('isInvulnerable')) {
-        return;
-    }
-
-    const bullet = bulletGroup.get();
-    
-    if (bullet) {
-        // Play shoot sound
-        shootSound.play({ volume: 0.5 });
-        
-        // Get the angle the player is facing in radians
-        const angleRad = Phaser.Math.DegToRad(player.angle);
-        
-        // Calculate the position at the tip of the triangle
-        // The tip offset is rotated based on the ship's current angle
-        const tipX = Math.cos(angleRad) * player.tipOffset.x - Math.sin(angleRad) * player.tipOffset.y;
-        const tipY = Math.sin(angleRad) * player.tipOffset.x + Math.cos(angleRad) * player.tipOffset.y;
-        
-        // Set bullet position at the tip of the triangle
-        bullet.setPosition(player.x + tipX, player.y + tipY);
-        bullet.setActive(true);
-        bullet.setVisible(true);
-        
-        // Set bullet velocity (faster than the player's max speed)
-        bullet.setVelocity(
-            Math.cos(angleRad) * 300 + player.body.velocity.x * 0.5,
-            Math.sin(angleRad) * 300 + player.body.velocity.y * 0.5
-        );
-        
-        // Set cooldown for shooting
-        player.setData('lastShot', time);
-    }
-}
-
-// Collision handler for player 2 getting hit
-function bulletHitPlayer2(bullet, player) {
-    // Ignore if player is invulnerable
-    if (player.getData('isInvulnerable')) {
-        // Destroy the bullet to prevent multiple hits
-        bullet.setActive(false);
-        bullet.setVisible(false);
-        return;
-    }
-    
-    // Play explosion sound
-    explosionSound.play({ volume: 0.5 });
-    
-    // Increment score for player 1
-    player1Score++;
-    player1ScoreText.setText('Blue: ' + player1Score);
-    
-    // Destroy the bullet
-    bullet.setActive(false);
-    bullet.setVisible(false);
-    
-    // Respawn player 2 - use player2 reference, not the parameter
-    // Pass null values for position and angle to ensure they're calculated randomly
-    respawnPlayer(player2, null, null, null);
-}
-
-// Collision handler for player 1 getting hit
-function bulletHitPlayer1(bullet, player) {
-    // Ignore if player is invulnerable
-    if (player.getData('isInvulnerable')) {
-        // Destroy the bullet to prevent multiple hits
-        bullet.setActive(false);
-        bullet.setVisible(false);
-        return;
-    }
-    
-    // Play explosion sound
-    explosionSound.play({ volume: 0.5 });
-    
-    // Increment score for player 2
-    player2Score++;
-    player2ScoreText.setText('Red: ' + player2Score);
-    
-    // Destroy the bullet
-    bullet.setActive(false);
-    bullet.setVisible(false);
-    
-    // Respawn player 1 - use player1 reference, not the parameter
-    // Pass null values for position and angle to ensure they're calculated randomly
-    respawnPlayer(player1, null, null, null);
-}
-
-// Helper function to respawn a player
-function respawnPlayer(player, x, y, angle) {
-    // Set player as invulnerable temporarily
-    player.setData('isInvulnerable', true);
-    
-    // Play respawn sound
-    respawnSound.play({ volume: 0.5 });
-    
-    // Get the other player
-    const otherPlayer = (player === player1) ? player2 : player1;
-    
-    // Calculate respawn position with randomness
-    // Random distance between 300 and 600 units from the other player
-    const minDistance = 300;
-    const maxDistance = 600;
-    const respawnDistance = minDistance + Math.random() * (maxDistance - minDistance);
-    
-    // Random angle for respawn position (ensure it's truly random each time)
-    const respawnAngle = Math.random() * Math.PI * 2;
-    
-    // Calculate new position based on other player's position
-    x = otherPlayer.x + Math.cos(respawnAngle) * respawnDistance;
-    y = otherPlayer.y + Math.sin(respawnAngle) * respawnDistance;
-    
-    // Random starting angle (facing roughly toward the other player, but with some variation)
-    // Calculate angle toward other player
-    const angleToOther = Math.atan2(otherPlayer.y - y, otherPlayer.x - x);
-    
-    // Add some random variation (-45 to +45 degrees)
-    const angleVariation = (Math.random() * 90 - 45) * (Math.PI / 180);
-    angle = Phaser.Math.RadToDeg(angleToOther + angleVariation);
-    
-    // Log respawn details for debugging
-    if (DEBUG_MODE && debugText) {
-        console.log(`Respawning ${player === player1 ? 'P1' : 'P2'} at distance: ${respawnDistance.toFixed(0)}, angle: ${respawnAngle.toFixed(2)}, pos: ${x.toFixed(0)},${y.toFixed(0)}`);
-    }
-    
-    // Reset position and properties
-    player.x = x;
-    player.y = y;
-    player.angle = angle;
-    player.body.velocity.x = 0;
-    player.body.velocity.y = 0;
-    player.body.angularVelocity = 0;
-    player.isThrusting = false;
-    
-    // Ensure player is visible
-    player.visible = true;
-    player.alpha = 1;
-    
-    // Get the appropriate shield
-    let shield = (player === player1) ? player1Shield : player2Shield;
-    
-    // Make sure shield is visible and positioned correctly
-    shield.visible = true;
-    shield.x = player.x;
-    shield.y = player.y;
-    shield.alpha = 0.7;
-    shield.setScale(1.5);
-    
-    // Stop any existing tweens on the shield and player
-    player.scene.tweens.killTweensOf(shield);
-    player.scene.tweens.killTweensOf(player);
-    
-    // Create shield pulsing effect
-    player.scene.tweens.add({
-        targets: shield,
-        alpha: { from: 0.7, to: 0.3 },
-        scale: { from: 1.3, to: 1.7 },
-        duration: 500,
-        ease: 'Sine.easeInOut',
-        yoyo: true,
-        repeat: 5
-    });
-    
-    // Create simple blink effect for player instead of alpha tween
-    let blinkCount = 0;
-    const maxBlinks = 6;
-    
-    // Create a timer event for blinking
-    const blinkEvent = player.scene.time.addEvent({
-        delay: 200,
-        callback: function() {
-            // Toggle alpha between 0.5 and 1 for blink effect
-            player.alpha = player.alpha === 1 ? 0.5 : 1;
-            blinkCount++;
+            // Interpolate position and angle
+            player.x = Phaser.Math.Linear(player.oldX, player.targetX, player.interpTime);
+            player.y = Phaser.Math.Linear(player.oldY, player.targetY, player.interpTime);
             
-            // When blinking is done
-            if (blinkCount >= maxBlinks) {
-                // Clear the timer
-                blinkEvent.remove();
-                
-                // Ensure player is fully visible
-                player.alpha = 1;
-                
-                // Create a fade out effect for the shield
-                player.scene.tweens.add({
-                    targets: shield,
-                    alpha: 0,
-                    scale: 2,
-                    duration: 500,
-                    ease: 'Power2',
-                    onComplete: function() {
-                        // Hide shield and remove invulnerability when fade completes
-                        shield.visible = false;
-                        player.setData('isInvulnerable', false);
-                        
-                        if (DEBUG_MODE && debugText) {
-                            debugText.setText(`Debug: Shield fade complete for ${player === player1 ? 'P1' : 'P2'}`);
-                        }
-                    }
-                });
-            }
-        },
-        callbackScope: this,
-        loop: true
+            // Use shortest path for angle interpolation
+            let angleDiff = player.targetAngle - player.oldAngle;
+            if (angleDiff > 180) angleDiff -= 360;
+            if (angleDiff < -180) angleDiff += 360;
+            player.angle = player.oldAngle + angleDiff * player.interpTime;
+        }
     });
 }
 
-// Calculate the optimal zoom level based on player positions
-function calculateOptimalZoom() {
-    // Calculate the distance between the two players
-    const dx = player2.x - player1.x;
-    const dy = player2.y - player1.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    
-    // Get the current viewport dimensions from the game
-    const viewportWidth = game.scale.gameSize.width;
-    const viewportHeight = game.scale.gameSize.height;
-    
-    // Calculate the aspect ratio
-    const aspectRatio = viewportWidth / viewportHeight;
-    
-    // Calculate the diagonal of the viewport
-    const viewportDiagonal = Math.sqrt(viewportWidth * viewportWidth + viewportHeight * viewportHeight);
-    
-    // Calculate the player spread in both dimensions
-    const playerSpreadX = Math.abs(dx);
-    const playerSpreadY = Math.abs(dy);
-    
-    // Calculate the player diagonal spread
-    const playerDiagonal = Math.sqrt(playerSpreadX * playerSpreadX + playerSpreadY * playerSpreadY);
-    
-    // Calculate zoom based on the diagonal with margin
-    let newZoom = viewportDiagonal / (playerDiagonal + cameraMargin * 2);
-    
-    // Add a safety factor to ensure players are always visible
-    newZoom *= 0.9;
-    
-    // Clamp the zoom level to min and max values
-    newZoom = Phaser.Math.Clamp(newZoom, minZoom, maxZoom);
-    
-    return newZoom;
-}
+function updateMultiplayerCamera() {
+    if (!myPlayer || !mainCamera) return;
 
-// Update camera position and zoom
-function updateCamera() {
-    if (!player1 || !player2 || !mainCamera) return;
+    // Get all active players including our player
+    const allPlayers = [myPlayer, ...Object.values(otherPlayers)];
     
-    // Calculate the midpoint between the two players
-    const midX = (player1.x + player2.x) / 2;
-    const midY = (player1.y + player2.y) / 2;
-    
-    // Calculate the optimal zoom level
-    targetZoom = calculateOptimalZoom();
-    
-    // Increase zoom speed when zooming out (to prevent players from going off-screen)
-    // but keep it slower when zooming in (for smoother visuals)
-    const adaptiveZoomSpeed = targetZoom < currentZoom ? zoomSpeed * 2 : zoomSpeed;
+    // Calculate the bounding box of all players
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+
+    allPlayers.forEach(player => {
+        minX = Math.min(minX, player.x);
+        minY = Math.min(minY, player.y);
+        maxX = Math.max(maxX, player.x);
+        maxY = Math.max(maxY, player.y);
+    });
+
+    // Calculate center point
+    const centerX = (minX + maxX) / 2;
+    const centerY = (minY + maxY) / 2;
+
+    // Calculate required zoom level to fit all players
+    const width = maxX - minX + cameraMargin * 2;
+    const height = maxY - minY + cameraMargin * 2;
+    const widthZoom = game.scale.width / width;
+    const heightZoom = game.scale.height / height;
+    targetZoom = Math.min(maxZoom, Math.max(minZoom, Math.min(widthZoom, heightZoom)));
     
     // Smoothly interpolate current zoom towards target zoom
-    currentZoom = Phaser.Math.Linear(currentZoom, targetZoom, adaptiveZoomSpeed);
-    
-    // Update camera position and zoom
-    // Use a shorter duration for panning when players are far apart
-    const panDuration = 100;
-    mainCamera.pan(midX, midY, panDuration, 'Linear', true);
+    currentZoom = Phaser.Math.Linear(currentZoom, targetZoom, zoomSpeed);
+
+    // Update camera
+    mainCamera.pan(centerX, centerY, 100, 'Linear', true);
     mainCamera.zoomTo(currentZoom, 100);
     
     if (DEBUG_MODE && debugText) {
-        const distance = Math.sqrt(Math.pow(player2.x - player1.x, 2) + Math.pow(player2.y - player1.y, 2));
-        debugText.setText(`Debug: Zoom: ${currentZoom.toFixed(2)}, Distance: ${distance.toFixed(0)}`);
-        // Make sure debug text follows the camera
+        debugText.setText(`Players: ${allPlayers.length}, Zoom: ${currentZoom.toFixed(2)}`);
         debugText.setScrollFactor(0);
-        player1ScoreText.setScrollFactor(0);
-        player2ScoreText.setScrollFactor(0);
     }
 }
 
-// Create UI elements
-function createUI(scene) {
-    // Get the current game size
-    const width = game.scale.gameSize.width;
-    const height = game.scale.gameSize.height;
+function createScoreText(scene, playerId) {
+    const isMyPlayer = playerId === socket.id;
+    const color = isMyPlayer ? '#0000FF' : '#FF0000';
+    const x = isMyPlayer ? 20 : game.scale.width - 120;
     
-    // Create score text - position based on viewport size
-    player1ScoreText = scene.add.text(20, 20, 'Blue: 0', { 
+    scoreTexts[playerId] = scene.add.text(x, 20, `${isMyPlayer ? 'You' : 'Player'}: 0`, {
         fontSize: '24px', 
-        fill: '#0000FF',
+        fill: color,
         stroke: '#000000',
         strokeThickness: 2
     });
     
-    // Position player 2 score at the right side of the screen
-    player2ScoreText = scene.add.text(width - 120, 20, 'Red: 0', { 
-        fontSize: '24px', 
-        fill: '#FF0000',
-        stroke: '#000000',
-        strokeThickness: 2
-    });
+    scoreTexts[playerId].setScrollFactor(0);
+}
+
+function updateScoreText(playerId, score) {
+    if (scoreTexts[playerId]) {
+        const isMyPlayer = playerId === socket.id;
+        scoreTexts[playerId].setText(`${isMyPlayer ? 'You' : 'Player'}: ${score}`);
+    }
+}
+
+function updateBulletsFromState(scene, bulletState) {
+    // Clear existing bullets
+    bullets.clear(true, true);
     
-    // Fix UI elements to the camera (won't move when camera pans)
-    player1ScoreText.setScrollFactor(0);
-    player2ScoreText.setScrollFactor(0);
-    
-    // Create debug text if in debug mode - position at bottom of screen
-    if (DEBUG_MODE) {
-        debugText = scene.add.text(20, height - 50, 'Debug: Game started', { 
-            fontSize: '16px', 
-            fill: '#00FF00',
-            stroke: '#000000',
-            strokeThickness: 1
+    // Create new bullets based on state
+    if (bulletState && bulletState.length > 0) {
+        console.log(`Rendering ${bulletState.length} bullets`);
+        
+        bulletState.forEach(bulletData => {
+            try {
+                // Create a new bullet sprite directly
+                const bullet = scene.physics.add.sprite(bulletData.x, bulletData.y, 'bullet_yellow');
+                bullet.setScale(1.5); // Make bullets more visible
+                bullets.add(bullet);
+                
+                bullet.setActive(true);
+                bullet.setVisible(true);
+                bullet.ownerId = bulletData.ownerId;
+                
+                // Check if this is a new bullet from our player
+                if (bulletData.ownerId === socket.id && bulletData.createdAt) {
+                    const timeSinceCreation = Date.now() - bulletData.createdAt;
+                    if (timeSinceCreation < 100) { // Only play sound for bullets created in the last 100ms
+                        shootSound.play({ volume: 0.5 });
+                        console.log("Playing shoot sound for new bullet");
+                    }
+                }
+            } catch (error) {
+                console.error("Error creating bullet:", error);
+            }
         });
-        debugText.setScrollFactor(0);
+    } else {
+        console.log("No bullets to render");
     }
     
-    // Handle game resize events
-    scene.scale.on('resize', function(gameSize) {
-        // Get the new width and height
-        const width = gameSize.width;
-        const height = gameSize.height;
-        
-        // Reposition player 2 score
-        player2ScoreText.setPosition(width - 120, 20);
-        
-        // Reposition debug text if it exists
-        if (debugText) {
-            debugText.setPosition(20, height - 50);
-        }
-        
-        // Update camera bounds if needed
-        if (mainCamera) {
-            // Recalculate zoom to ensure players are visible with new dimensions
-            targetZoom = calculateOptimalZoom();
-            currentZoom = targetZoom;
-            mainCamera.zoomTo(currentZoom, 0);
-        }
-    });
+    // Debug info
+    if (DEBUG_MODE && debugText) {
+        const bulletCount = bulletState ? bulletState.length : 0;
+        const playerCount = Object.keys(otherPlayers).length + 1;
+        debugText.setText(`Players: ${playerCount}, Bullets: ${bulletCount}, My ID: ${socket?.id || 'unknown'}`);
+        debugText.setPosition(20, scene.cameras.main.height - 40);
+        debugText.setScrollFactor(0);
+    }
 }
 
 // Create player triangles with proper center pivot
@@ -816,8 +623,13 @@ function createPlayerTriangle(scene, x, y, color, angle) {
     // Add physics
     scene.physics.add.existing(ship);
     ship.body.setDamping(true);
-    ship.body.setDrag(drag);
-    ship.body.setMaxVelocity(maxSpeed, maxSpeed);
+    
+    // Use PHYSICS if available, otherwise use fallback values
+    const dragValue = PHYSICS ? PHYSICS.drag : 0.9;
+    const maxSpeedValue = PHYSICS ? PHYSICS.maxSpeed : 1;
+    
+    ship.body.setDrag(dragValue);
+    ship.body.setMaxVelocity(maxSpeedValue, maxSpeedValue);
     ship.body.setAngularDrag(0.9);
     ship.angle = angle;
     
@@ -831,4 +643,27 @@ function createPlayerTriangle(scene, x, y, color, angle) {
     ship.tipOffset = { x: size, y: 0 };
     
     return ship;
+}
+
+// Apply an input to a player
+function applyInput(player, input) {
+    if (!PHYSICS) return;
+    
+    // Update angle
+    player.angle = input.angle;
+    
+    // Apply thrust if thrusting
+    if (input.isThrusting) {
+        const angleRad = player.angle * (Math.PI / 180);
+        player.body.velocity.x += Math.cos(angleRad) * PHYSICS.thrustPower;
+        player.body.velocity.y += Math.sin(angleRad) * PHYSICS.thrustPower;
+        
+        // Limit speed
+        const speed = Math.sqrt(player.body.velocity.x ** 2 + player.body.velocity.y ** 2);
+        if (speed > PHYSICS.maxSpeed) {
+            const scale = PHYSICS.maxSpeed / speed;
+            player.body.velocity.x *= scale;
+            player.body.velocity.y *= scale;
+        }
+    }
 } 
