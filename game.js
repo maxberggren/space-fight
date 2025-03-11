@@ -532,7 +532,7 @@ function updateMultiplayerCamera() {
     // Smoothly transition to the target zoom
     targetZoom = Phaser.Math.Linear(targetZoom, newTargetZoom, 0.1);
     currentZoom = Phaser.Math.Linear(currentZoom, targetZoom, zoomSpeed);
-
+    
     // Update camera position and zoom
     mainCamera.pan(targetX, targetY, 100, 'Linear', true);
     mainCamera.zoomTo(currentZoom, 100);

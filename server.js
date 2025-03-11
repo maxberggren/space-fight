@@ -101,20 +101,21 @@ io.on('connection', (socket) => {
     });
 });
 
-// Update game state at a fixed interval
+// Game loop - update rate from shared config
 setInterval(() => {
-    // Compress game state to reduce network traffic
+    updateGameState();
+    
+    // Create a compressed version of the game state to reduce network traffic
     const compressedState = {
         players: {},
         bullets: []
     };
-
-    // Add player data
-    Object.keys(gameState.players).forEach(playerId => {
-        const player = gameState.players[playerId];
-        
-        // Only send necessary player data, avoiding circular references
-        compressedState.players[playerId] = {
+    
+    // Only send necessary player data
+    Object.keys(gameState.players).forEach(id => {
+        const player = gameState.players[id];
+        compressedState.players[id] = {
+            id: player.id,
             x: player.x,
             y: player.y,
             angle: player.angle,
@@ -123,28 +124,20 @@ setInterval(() => {
             lastProcessedInput: player.lastProcessedInput
         };
     });
-
-    // Add bullet data
+    
+    // Include all bullet data
     gameState.bullets.forEach(bullet => {
-        // Only send necessary bullet data, avoiding circular references
         compressedState.bullets.push({
             x: bullet.x,
             y: bullet.y,
+            velocityX: bullet.velocityX,
+            velocityY: bullet.velocityY,
             ownerId: bullet.ownerId,
             createdAt: bullet.createdAt
         });
     });
-
-    // Log the size of the game state periodically
-    if (DEBUG_MODE && frameCount % 300 === 0) {
-        console.log(`Game state: ${Object.keys(gameState.players).length} players, ${gameState.bullets.length} bullets`);
-        console.log(`Players: ${Object.keys(gameState.players).join(', ')}`);
-    }
-
-    // Send game state to all connected clients
-    io.emit('gameStateUpdate', compressedState);
     
-    frameCount++;
+    io.emit('gameStateUpdate', compressedState);
 }, 1000 / NETWORK.updateRate);
 
 function updateGameState() {
@@ -170,28 +163,29 @@ function updateGameState() {
 }
 
 function createBullet(player) {
-    // Calculate bullet spawn position at the tip of the ship
     const angleRad = player.angle * (Math.PI / 180);
-    const spawnDistance = 30; // Distance from player center to spawn point
     
-    const bulletX = player.x + Math.cos(angleRad) * spawnDistance;
-    const bulletY = player.y + Math.sin(angleRad) * spawnDistance;
+    // Calculate bullet spawn position at the tip of the ship
+    const tipDistance = 20; // Distance from ship center to tip
+    const bulletX = player.x + Math.cos(angleRad) * tipDistance;
+    const bulletY = player.y + Math.sin(angleRad) * tipDistance;
     
-    // Create bullet with only necessary properties
+    // Create the bullet with proper velocity
     const bullet = {
         x: bulletX,
         y: bulletY,
-        velocityX: Math.cos(angleRad) * GAME.bulletSpeed,
-        velocityY: Math.sin(angleRad) * GAME.bulletSpeed,
+        velocityX: Math.cos(angleRad) * GAME.bulletSpeed + player.velocity.x * 0.5,
+        velocityY: Math.sin(angleRad) * GAME.bulletSpeed + player.velocity.y * 0.5,
         ownerId: player.id,
         createdAt: Date.now()
     };
     
     gameState.bullets.push(bullet);
     
-    if (DEBUG_MODE) {
-        console.log(`Bullet created by ${player.id} at (${bulletX.toFixed(2)}, ${bulletY.toFixed(2)})`);
-    }
+    // Log for debugging
+    console.log(`Player ${player.id} fired a bullet at position (${bulletX.toFixed(2)}, ${bulletY.toFixed(2)})`);
+    
+    return bullet;
 }
 
 function updateBullets() {
