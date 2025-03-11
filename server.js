@@ -137,11 +137,6 @@ setInterval(() => {
         });
     });
     
-    // Log bullet count periodically
-    if (gameState.bullets.length > 0) {
-        console.log(`Sending ${gameState.bullets.length} bullets to clients`);
-    }
-    
     io.emit('gameStateUpdate', compressedState);
 }, 1000 / NETWORK.updateRate);
 
@@ -210,9 +205,6 @@ function updateBullets() {
                 const dy = player.y - bullet.y;
                 const distance = Math.sqrt(dx * dx + dy * dy);
                 
-                // Log all potential collisions for debugging
-                console.log(`Collision check: Bullet(${bullet.x.toFixed(1)},${bullet.y.toFixed(1)}) from ${bullet.ownerId.substring(0,4)} -> Player(${player.x.toFixed(1)},${player.y.toFixed(1)}) ${player.id.substring(0,4)}, distance: ${distance.toFixed(1)}, hitRadius: ${GAME.hitRadius}, invulnerable: ${player.invulnerable}`);
-
                 if (distance < GAME.hitRadius) { // Hit radius from shared config
                     if (player.invulnerable) {
                         console.log(`HIT DETECTED but player ${player.id.substring(0,4)} is invulnerable!`);

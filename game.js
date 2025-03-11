@@ -411,7 +411,6 @@ function update(time, delta) {
     // Check for shooting with spacebar
     if (Phaser.Input.Keyboard.JustDown(shootKey)) {
         input.isShooting = true;
-        console.log("Spacebar pressed - shooting");
         
         // Visual feedback for shooting attempt
         if (!myPlayer.getData('isInvulnerable')) {
@@ -540,8 +539,6 @@ function updateBulletsFromState(scene, bulletState) {
     
     // Create new bullets based on state
     if (bulletState && bulletState.length > 0) {
-        console.log(`Rendering ${bulletState.length} bullets`);
-        
         bulletState.forEach(bulletData => {
             try {
                 // Create a new bullet sprite directly
@@ -558,15 +555,12 @@ function updateBulletsFromState(scene, bulletState) {
                     const timeSinceCreation = Date.now() - bulletData.createdAt;
                     if (timeSinceCreation < 100) { // Only play sound for bullets created in the last 100ms
                         shootSound.play({ volume: 0.5 });
-                        console.log("Playing shoot sound for new bullet");
                     }
                 }
             } catch (error) {
                 console.error("Error creating bullet:", error);
             }
         });
-    } else {
-        console.log("No bullets to render");
     }
     
     // Debug info
