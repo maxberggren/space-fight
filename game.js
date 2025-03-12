@@ -157,7 +157,22 @@ function preload() {
     this.load.on('loaderror', (fileObj) => {
         if (fileObj.key === 'planet') {
             console.log('Planet texture failed to load, generating one programmatically');
-            this.generatePlanetTexture();
+            if (typeof this.generatePlanetTexture === 'function') {
+                this.generatePlanetTexture();
+            } else {
+                // Simple fallback - create a basic graphics texture for the planet
+                const graphics = this.add.graphics();
+                const radius = 100; // Default planet radius
+                graphics.fillStyle(0x888888, 1); // Gray color
+                graphics.fillCircle(radius, radius, radius);
+                
+                // Create a texture from the graphics object
+                const texture = graphics.generateTexture('planet-fallback', radius * 2, radius * 2);
+                graphics.destroy();
+                
+                // Use this texture for planets that failed to load
+                console.log('Created fallback planet texture');
+            }
         }
     });
 }
