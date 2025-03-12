@@ -1,9 +1,9 @@
 // Game configuration
 const config = {
     type: Phaser.AUTO,
-    // Use window dimensions for full viewport width and height
-    width: window.innerWidth,
-    height: window.innerHeight,
+    width: window.innerWidth * 4,  // Double the internal resolution
+    height: window.innerHeight * 4,
+    resolution: 4,  // Display at half size (effectively supersampling)
     physics: {
         default: 'arcade',
         arcade: {
@@ -73,9 +73,9 @@ let mainCamera;
 let targetZoom = 0.3; // Default very zoomed-out level
 let currentZoom = 0.3;
 let zoomSpeed = 0.05; // Smooth transition speed
-let minZoom = 0.25; // Minimum zoom (most zoomed out)
-let maxZoom = 1.1; // Maximum zoom when players are close (more zoomed in)
-let cameraMargin = 100; // Margin around players
+let minZoom = 1.25; // Minimum zoom (most zoomed out)
+let maxZoom = 3.1; // Maximum zoom when players are close (more zoomed in)
+let cameraMargin = 200; // Margin around players
 
 // Initialize HTML UI elements
 function initializeUI() {
