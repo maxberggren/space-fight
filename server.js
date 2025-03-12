@@ -1,11 +1,90 @@
 const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
-const io = require('socket.io')(http);
+
+// Configure Socket.IO with proper options
+const io = require('socket.io')(http, {
+    // Set a higher maxHttpBufferSize to handle larger payloads
+    maxHttpBufferSize: 1e8 // 100 MB
+});
+
 const path = require('path');
 
 // Import shared configuration
 const { PHYSICS, WORLD, GAME, NETWORK } = require('./shared-config');
+
+// Add a safe serialization function to handle circular references
+function safeSerialize(obj, replacer = null, space = null, seen = new WeakSet(), path = '') {
+    // Debug output for deep objects
+    if (path.split('.').length > 10) {
+        console.log(`Deep path detected: ${path}`);
+    }
+    
+    // Return primitive values directly
+    if (obj === null || typeof obj !== 'object') {
+        return obj;
+    }
+    
+    // Handle Date objects
+    if (obj instanceof Date) {
+        return obj.toISOString();
+    }
+    
+    // Handle RegExp objects
+    if (obj instanceof RegExp) {
+        return obj.toString();
+    }
+    
+    // Detect circular references
+    if (seen.has(obj)) {
+        console.log(`Circular reference detected at: ${path}`);
+        return undefined; // Skip circular references
+    }
+    
+    // Add this object to seen objects
+    seen.add(obj);
+    
+    // Handle arrays
+    if (Array.isArray(obj)) {
+        const safeArray = obj.map((item, index) => 
+            safeSerialize(item, replacer, space, seen, `${path}[${index}]`)
+        );
+        // Filter out undefined values (circular references)
+        return safeArray.filter(item => item !== undefined);
+    }
+    
+    // Handle objects
+    const safeObj = {};
+    try {
+        for (const [key, value] of Object.entries(obj)) {
+            // Skip functions, DOM nodes, and other non-serializable objects
+            if (typeof value === 'function' || 
+                (value && value.nodeType) || 
+                (value && typeof value === 'object' && value.constructor && 
+                 (value.constructor.name === 'Socket' || 
+                  value.constructor.name === 'Namespace' ||
+                  value.constructor.name === 'Server')) ||
+                key === 'scene' || key === 'shield' || key === 'body' ||
+                key === '_events' || key === '_eventsCount' || key === '_maxListeners' ||
+                key === 'server' || key === 'adapter' || key === 'rooms' ||
+                key === 'conn' || key === 'encoder' || key === 'decoder' ||
+                key === 'sockets' || key === 'nsps' || key === 'parent') {
+                continue;
+            }
+            
+            const newPath = path ? `${path}.${key}` : key;
+            const safeValue = safeSerialize(value, replacer, space, seen, newPath);
+            if (safeValue !== undefined) {
+                safeObj[key] = safeValue;
+            }
+        }
+    } catch (err) {
+        console.error(`Error serializing at path: ${path}`, err);
+        return undefined;
+    }
+    
+    return safeObj;
+}
 
 // Serve static files
 app.use(express.static(path.join(__dirname, '/')));
@@ -51,10 +130,102 @@ io.on('connection', (socket) => {
     }, GAME.respawnInvulnerabilityTime);
 
     // Send initial game state to new player
-    socket.emit('gameState', gameState);
+    try {
+        // Create a clean, serializable version of the game state
+        const cleanState = {
+            players: {},
+            bullets: [],
+            planets: {}
+        };
+        
+        // Add player data (only primitive values and simple objects)
+        Object.keys(gameState.players).forEach(id => {
+            const player = gameState.players[id];
+            cleanState.players[id] = {
+                id: id,
+                x: Number(player.x),
+                y: Number(player.y),
+                angle: Number(player.angle),
+                name: String(player.name || ""),
+                color: Number(player.color || 0),
+                invulnerable: Boolean(player.invulnerable),
+                lastProcessedInput: Number(player.lastProcessedInput || 0),
+                landedOnPlanet: player.landedOnPlanet ? String(player.landedOnPlanet) : null
+            };
+        });
+        
+        // Add bullet data
+        gameState.bullets.forEach(bullet => {
+            cleanState.bullets.push({
+                x: Number(bullet.x),
+                y: Number(bullet.y),
+                velocityX: Number(bullet.velocityX),
+                velocityY: Number(bullet.velocityY),
+                ownerId: String(bullet.ownerId),
+                createdAt: Number(bullet.createdAt)
+            });
+        });
+        
+        // Add planet data
+        Object.keys(gameState.planets).forEach(id => {
+            const planet = gameState.planets[id];
+            
+            // Create a clean array of craters
+            const cleanCraters = [];
+            if (planet.craters && Array.isArray(planet.craters)) {
+                planet.craters.forEach(crater => {
+                    cleanCraters.push({
+                        x: Number(crater.x),
+                        y: Number(crater.y),
+                        radius: Number(crater.radius),
+                        angle: Number(crater.angle || 0)
+                    });
+                });
+            }
+            
+            cleanState.planets[id] = {
+                id: String(id),
+                ownerId: String(planet.ownerId),
+                x: Number(planet.x),
+                y: Number(planet.y),
+                radius: Number(planet.radius),
+                color: Number(planet.color || 0),
+                craters: cleanCraters
+            };
+        });
+        
+        socket.emit('gameState', cleanState);
+    } catch (err) {
+        console.error("Error sending initial game state:", err);
+        
+        // Send minimal state as fallback
+        const minimalState = {
+            players: {},
+            bullets: [],
+            planets: {}
+        };
+        
+        Object.keys(gameState.players).forEach(id => {
+            minimalState.players[id] = {
+                id: id,
+                x: gameState.players[id].x,
+                y: gameState.players[id].y,
+                angle: gameState.players[id].angle
+            };
+        });
+        
+        socket.emit('gameState', minimalState);
+    }
 
     // Broadcast new player to all other players
-    socket.broadcast.emit('playerJoined', gameState.players[socket.id]);
+    socket.broadcast.emit('playerJoined', {
+        id: socket.id,
+        x: gameState.players[socket.id].x,
+        y: gameState.players[socket.id].y,
+        angle: gameState.players[socket.id].angle,
+        name: gameState.players[socket.id].name,
+        color: gameState.players[socket.id].color
+    });
 
     // Handle player input
     socket.on('playerInput', (input) => {
@@ -210,56 +381,99 @@ io.on('connection', (socket) => {
 setInterval(() => {
     updateGameState();
     
-    // Create a compressed version of the game state to reduce network traffic
-    const compressedState = {
-        players: {},
-        bullets: [],
-        planets: {}
-    };
-    
-    // Only send necessary player data
-    Object.keys(gameState.players).forEach(id => {
-        const player = gameState.players[id];
-        compressedState.players[id] = {
-            id: player.id,
-            x: player.x,
-            y: player.y,
-            angle: player.angle,
-            name: player.name,
-            color: player.color,
-            invulnerable: player.invulnerable,
-            lastProcessedInput: player.lastProcessedInput,
-            landedOnPlanet: player.landedOnPlanet
+    try {
+        // Create a clean, serializable version of the game state
+        const cleanState = {
+            players: {},
+            bullets: [],
+            planets: {}
         };
-    });
-    
-    // Include all bullet data
-    gameState.bullets.forEach(bullet => {
-        compressedState.bullets.push({
-            x: bullet.x,
-            y: bullet.y,
-            velocityX: bullet.velocityX,
-            velocityY: bullet.velocityY,
-            ownerId: bullet.ownerId,
-            createdAt: bullet.createdAt
+        
+        // Add player data (only primitive values and simple objects)
+        Object.keys(gameState.players).forEach(id => {
+            const player = gameState.players[id];
+            cleanState.players[id] = {
+                id: id, // Use string ID directly
+                x: Number(player.x),
+                y: Number(player.y),
+                angle: Number(player.angle),
+                name: String(player.name || ""),
+                color: Number(player.color || 0),
+                invulnerable: Boolean(player.invulnerable),
+                lastProcessedInput: Number(player.lastProcessedInput || 0),
+                landedOnPlanet: player.landedOnPlanet ? String(player.landedOnPlanet) : null
+            };
         });
-    });
-    
-    // Include planet data
-    Object.keys(gameState.planets).forEach(id => {
-        const planet = gameState.planets[id];
-        compressedState.planets[id] = {
-            id: planet.id,
-            ownerId: planet.ownerId,
-            x: planet.x,
-            y: planet.y,
-            radius: planet.radius,
-            color: planet.color,
-            segments: planet.segments
-        };
-    });
-    
-    io.emit('gameStateUpdate', compressedState);
+        
+        // Add bullet data (only primitive values)
+        gameState.bullets.forEach(bullet => {
+            cleanState.bullets.push({
+                x: Number(bullet.x),
+                y: Number(bullet.y),
+                velocityX: Number(bullet.velocityX),
+                velocityY: Number(bullet.velocityY),
+                ownerId: String(bullet.ownerId),
+                createdAt: Number(bullet.createdAt)
+            });
+        });
+        
+        // Add planet data (only primitive values and simple objects)
+        Object.keys(gameState.planets).forEach(id => {
+            const planet = gameState.planets[id];
+            
+            // Create a clean array of craters
+            const cleanCraters = [];
+            if (planet.craters && Array.isArray(planet.craters)) {
+                planet.craters.forEach(crater => {
+                    cleanCraters.push({
+                        x: Number(crater.x),
+                        y: Number(crater.y),
+                        radius: Number(crater.radius),
+                        angle: Number(crater.angle || 0)
+                    });
+                });
+            }
+            
+            cleanState.planets[id] = {
+                id: String(id),
+                ownerId: String(planet.ownerId),
+                x: Number(planet.x),
+                y: Number(planet.y),
+                radius: Number(planet.radius),
+                color: Number(planet.color || 0),
+                craters: cleanCraters
+            };
+        });
+        
+        // Send the clean state to all clients
+        io.emit('gameStateUpdate', cleanState);
+        
+    } catch (err) {
+        console.error("Error sending game state update:", err);
+        
+        // Try a minimal update as fallback
+        try {
+            const minimalState = {
+                players: {},
+                bullets: [],
+                planets: {}
+            };
+            
+            // Just include positions
+            Object.keys(gameState.players).forEach(id => {
+                minimalState.players[id] = {
+                    id: id,
+                    x: gameState.players[id].x,
+                    y: gameState.players[id].y,
+                    angle: gameState.players[id].angle
+                };
+            });
+            
+            io.emit('gameStateUpdate', minimalState);
+        } catch (fallbackErr) {
+            console.error("Even fallback update failed:", fallbackErr);
+        }
+    }
 }, 1000 / NETWORK.updateRate);
 
 function updateGameState() {
