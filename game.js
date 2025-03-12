@@ -499,7 +499,7 @@ function setupSocketHandlers(scene) {
     socket.on('planetHit', (data) => {
         console.log(`Planet hit: ${data.planetId} at angle ${data.impactAngle.toFixed(2)}`);
         
-        // Create explosion effect at impact point
+        // Create explosion effect ONLY at the actual impact point
         const explosion = scene.add.sprite(data.x, data.y, 'explosion');
         explosion.setScale(0.5);
         explosion.play('explode');
@@ -509,6 +509,73 @@ function setupSocketHandlers(scene) {
         
         // Play explosion sound
         explosionSound.play({ volume: 0.3 });
+    });
+    
+    // Handle crater created
+    socket.on('craterCreated', (data) => {
+        console.log(`Crater created on planet ${data.planetId} at (${data.crater.x.toFixed(2)}, ${data.crater.y.toFixed(2)})`);
+        
+        // Make sure the planet exists
+        if (planets[data.planetId]) {
+            // Initialize craters array if it doesn't exist
+            if (!planets[data.planetId].craters) {
+                planets[data.planetId].craters = [];
+            }
+            
+            // Add the new crater
+            planets[data.planetId].craters.push(data.crater);
+            
+            // Calculate the vector from planet center to crater
+            const planet = planets[data.planetId];
+            const dx = data.crater.x - planet.x;
+            const dy = data.crater.y - planet.y;
+            
+            // Create debris particles flying out from the crater
+            const particleCount = 8 + Math.floor(Math.random() * 5);
+            for (let i = 0; i < particleCount; i++) {
+                // Calculate random direction for debris - only in the outward hemisphere
+                // This ensures debris only flies outward from the impact point
+                const baseAngle = Math.atan2(dy, dx);
+                const debrisAngle = baseAngle + (Math.random() - 0.5) * Math.PI * 0.8; // Limit to outward hemisphere
+                const debrisSpeed = 1 + Math.random() * 2;
+                const debrisDistance = Math.random() * data.crater.radius;
+                
+                // Create a small particle
+                const particle = scene.add.graphics();
+                const particleSize = 1 + Math.random() * 3;
+                const particleColor = 0x888888;
+                
+                // Draw particle
+                particle.fillStyle(particleColor, 0.7);
+                particle.fillCircle(
+                    data.crater.x + Math.cos(debrisAngle) * debrisDistance,
+                    data.crater.y + Math.sin(debrisAngle) * debrisDistance,
+                    particleSize
+                );
+                
+                // Animate particle flying outward and fading
+                scene.tweens.add({
+                    targets: particle,
+                    x: Math.cos(debrisAngle) * 50 * debrisSpeed,
+                    y: Math.sin(debrisAngle) * 50 * debrisSpeed,
+                    alpha: 0,
+                    duration: 1000 + Math.random() * 500,
+                    onComplete: () => {
+                        particle.destroy();
+                    }
+                });
+            }
+            
+            // Add a dust cloud effect
+            const dust = scene.add.sprite(data.crater.x, data.crater.y, 'explosion');
+            dust.setScale(0.3 + (data.crater.radius / 50)); // Scale based on crater size
+            dust.setAlpha(0.6);
+            dust.setTint(0x888888);
+            dust.play('explode');
+            dust.once('animationcomplete', () => {
+                dust.destroy();
+            });
+        }
     });
     
     // Handle planet removed
@@ -1205,15 +1272,11 @@ function renderPlanets() {
         
         // Get planet color (default to gray if not specified)
         const color = planet.color || 0x888888;
+        const radius = planet.radius || 100;
         
         // Draw planet base
         planetGraphics.fillStyle(color, 0.7);
         planetGraphics.lineStyle(2, 0xffffff, 0.8);
-        
-        // Draw planet with damaged segments
-        const segments = planet.segments || [];
-        const segmentSize = 10; // Degrees per segment (matches server)
-        const radius = planet.radius || 100;
         
         // Draw complete circle first as base
         planetGraphics.fillCircle(planet.x, planet.y, radius);
@@ -1272,20 +1335,21 @@ function renderPlanets() {
             planetGraphics.strokeCircle(planet.x, planet.y, radius * 15); // Visualize bullet gravity field
         }
         
-        // Draw damaged segments (cut out parts)
-        if (segments.length > 0) {
+        // Draw craters (circular cutouts)
+        if (planet.craters && planet.craters.length > 0) {
             planetGraphics.fillStyle(0x000000, 1);
             
-            segments.forEach(segmentIndex => {
-                const startAngle = segmentIndex * segmentSize * (Math.PI / 180);
-                const endAngle = (segmentIndex + 1) * segmentSize * (Math.PI / 180);
+            planet.craters.forEach(crater => {
+                // Draw crater as a black circle
+                planetGraphics.fillCircle(crater.x, crater.y, crater.radius);
                 
-                // Draw segment
-                planetGraphics.beginPath();
-                planetGraphics.moveTo(planet.x, planet.y);
-                planetGraphics.arc(planet.x, planet.y, radius + 5, startAngle, endAngle);
-                planetGraphics.closePath();
-                planetGraphics.fillPath();
+                // Add a subtle inner highlight to give depth
+                const innerHighlightRadius = crater.radius * 0.7;
+                const highlightColor = 0x333333; // Dark gray for subtle depth
+                
+                // Draw inner highlight
+                planetGraphics.fillStyle(highlightColor, 0.3);
+                planetGraphics.fillCircle(crater.x, crater.y, innerHighlightRadius);
             });
         }
         
