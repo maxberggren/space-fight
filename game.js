@@ -545,6 +545,129 @@ function setupSocketHandlers(scene) {
         dust.once('animationcomplete', () => {
             dust.destroy();
         });
+        
+        // If this is our player, show a takeoff hint
+        if (data.playerId === socket.id) {
+            const hintText = scene.add.text(data.x, data.y - 50, "Press UP to take off", {
+                fontSize: '16px',
+                fill: '#FFFFFF',
+                stroke: '#000000',
+                strokeThickness: 3
+            });
+            hintText.setOrigin(0.5, 0.5);
+            hintText.setName('takeoffHint');
+            
+            // Fade out after 3 seconds
+            scene.tweens.add({
+                targets: hintText,
+                alpha: 0,
+                duration: 3000,
+                delay: 2000,
+                onComplete: () => {
+                    hintText.destroy();
+                }
+            });
+            
+            // If we claimed the planet, show a message
+            if (data.claimed) {
+                let claimMessage = "Planet claimed!";
+                if (data.wasClaimed) {
+                    claimMessage = "Planet conquered!";
+                }
+                
+                const claimText = scene.add.text(data.x, data.y - 80, claimMessage, {
+                    fontSize: '18px',
+                    fill: '#FFFF00',
+                    stroke: '#000000',
+                    strokeThickness: 3,
+                    fontStyle: 'bold'
+                });
+                claimText.setOrigin(0.5, 0.5);
+                
+                // Add scale animation
+                scene.tweens.add({
+                    targets: claimText,
+                    scaleX: 1.2,
+                    scaleY: 1.2,
+                    duration: 500,
+                    yoyo: true,
+                    repeat: 1
+                });
+                
+                // Fade out
+                scene.tweens.add({
+                    targets: claimText,
+                    alpha: 0,
+                    y: claimText.y - 30,
+                    duration: 2000,
+                    delay: 1500,
+                    onComplete: () => {
+                        claimText.destroy();
+                    }
+                });
+            }
+        }
+    });
+    
+    // Handle player takeoff from planet
+    socket.on('playerTakeoff', (data) => {
+        console.log(`Player took off: ${data.playerId} from planet ${data.planetId}`);
+        
+        // Create multiple thrust effects for a more dramatic takeoff
+        for (let i = 0; i < 3; i++) {
+            scene.time.delayedCall(i * 100, () => {
+                // Create thrust effect with slight position variation
+                const offsetX = (Math.random() - 0.5) * 10;
+                const offsetY = (Math.random() - 0.5) * 10;
+                const thrust = scene.add.sprite(data.x + offsetX, data.y + offsetY, 'explosion');
+                thrust.setScale(0.3 + Math.random() * 0.2);
+                thrust.setTint(0x00ffff);
+                thrust.setAlpha(0.7);
+                thrust.play('explode');
+                thrust.once('animationcomplete', () => {
+                    thrust.destroy();
+                });
+            });
+        }
+        
+        // Play a sound for takeoff
+        if (data.playerId === socket.id) {
+            // Remove any takeoff hint
+            const hint = scene.children.getByName('takeoffHint');
+            if (hint) hint.destroy();
+            
+            // Play sound if available
+            if (shootSound) shootSound.play({ volume: 0.3, detune: -300 });
+            
+            // Add a temporary shield effect to visualize invulnerability
+            if (myPlayer) {
+                // Flash the player briefly
+                myPlayer.setTint(0x00ffff);
+                scene.time.delayedCall(500, () => {
+                    myPlayer.clearTint();
+                });
+                
+                // Show a temporary message
+                const safeText = scene.add.text(data.x, data.y - 40, "Safe takeoff!", {
+                    fontSize: '14px',
+                    fill: '#00FFFF',
+                    stroke: '#000000',
+                    strokeThickness: 3
+                });
+                safeText.setOrigin(0.5, 0.5);
+                
+                // Fade out
+                scene.tweens.add({
+                    targets: safeText,
+                    alpha: 0,
+                    y: safeText.y - 30,
+                    duration: 1500,
+                    onComplete: () => {
+                        safeText.destroy();
+                    }
+                });
+            }
+        }
     });
     
     // Handle planet severely damaged
@@ -575,6 +698,92 @@ function setupSocketHandlers(scene) {
                     explosionSound.play({ volume: 0.4 });
                 });
             }
+        }
+    });
+    
+    // Handle planet claimed event
+    socket.on('planetClaimed', (data) => {
+        console.log(`Planet ${data.planetId} claimed by player ${data.newOwnerId}`);
+        
+        // Update planet data
+        if (planets[data.planetId]) {
+            planets[data.planetId].ownerId = data.newOwnerId;
+            planets[data.planetId].color = data.playerColor;
+            
+            // Get the planet position for effects
+            const planet = planets[data.planetId];
+            
+            // Create claim effect - ripple emanating from the planet
+            const rippleCount = 3;
+            for (let i = 0; i < rippleCount; i++) {
+                scene.time.delayedCall(i * 300, () => {
+                    const ripple = scene.add.graphics();
+                    const color = data.playerColor || 0xFFFFFF;
+                    
+                    // Draw ripple
+                    ripple.lineStyle(3, color, 0.7 - (i * 0.2));
+                    ripple.strokeCircle(planet.x, planet.y, planet.radius + 10);
+                    
+                    // Animate ripple expanding and fading
+                    scene.tweens.add({
+                        targets: ripple,
+                        scale: 1.5 + (i * 0.5),
+                        alpha: 0,
+                        duration: 1000,
+                        onComplete: () => {
+                            ripple.destroy();
+                        }
+                    });
+                });
+            }
+            
+            // Play sound effect if available
+            if (data.newOwnerId === socket.id) {
+                // Play claim sound (using explosion sound with different pitch)
+                if (explosionSound) {
+                    explosionSound.play({ volume: 0.3, detune: -600 });
+                }
+            }
+            
+            // Show claim notification for all players
+            const claimingPlayerName = data.playerName || "Unknown player";
+            let notificationText;
+            
+            if (data.newOwnerId === socket.id) {
+                notificationText = "You claimed a planet!";
+            } else if (data.previousOwnerId === socket.id) {
+                notificationText = `${claimingPlayerName} took your planet!`;
+            } else {
+                notificationText = `${claimingPlayerName} claimed a planet!`;
+            }
+            
+            // Create notification at top of screen
+            const notification = scene.add.text(
+                scene.cameras.main.centerX, 
+                50, 
+                notificationText, 
+                {
+                    fontSize: '18px',
+                    fill: '#FFFFFF',
+                    stroke: '#000000',
+                    strokeThickness: 3,
+                    fontStyle: 'bold'
+                }
+            );
+            notification.setOrigin(0.5, 0.5);
+            notification.setScrollFactor(0); // Fix to camera
+            
+            // Fade out notification
+            scene.tweens.add({
+                targets: notification,
+                alpha: 0,
+                y: 30,
+                duration: 2000,
+                delay: 2000,
+                onComplete: () => {
+                    notification.destroy();
+                }
+            });
         }
     });
 }
@@ -1010,6 +1219,59 @@ function renderPlanets() {
         planetGraphics.fillCircle(planet.x, planet.y, radius);
         planetGraphics.strokeCircle(planet.x, planet.y, radius);
         
+        // Draw ownership indicator (pulsing glow for owned planets)
+        const isOwnedByMe = planet.ownerId === socket.id;
+        const isOriginalPlanet = planet.id === planet.ownerId;
+        
+        // If this is a claimed planet (not original owner), add a crown or flag
+        if (!isOriginalPlanet) {
+            // Draw a flag or crown on top of the planet
+            const flagHeight = radius * 0.4;
+            const flagX = planet.x;
+            const flagY = planet.y - radius - flagHeight/2;
+            
+            // Draw flag pole
+            planetGraphics.lineStyle(3, 0xFFFFFF, 0.9);
+            planetGraphics.beginPath();
+            planetGraphics.moveTo(flagX, planet.y - radius);
+            planetGraphics.lineTo(flagX, flagY - flagHeight/2);
+            planetGraphics.strokePath();
+            
+            // Draw flag
+            planetGraphics.fillStyle(color, 1);
+            planetGraphics.fillTriangle(
+                flagX, flagY - flagHeight/2,
+                flagX + flagHeight * 0.7, flagY,
+                flagX, flagY + flagHeight/2
+            );
+        }
+        
+        // Add pulsing effect for planets owned by the current player
+        if (isOwnedByMe) {
+            // Calculate pulse based on time
+            const time = scene.time.now / 1000;
+            const pulseSize = Math.sin(time * 3) * 5 + 10; // Pulsing between 5 and 15
+            
+            // Draw pulsing ring
+            planetGraphics.lineStyle(2, color, 0.3);
+            planetGraphics.strokeCircle(planet.x, planet.y, radius + pulseSize);
+        }
+        
+        // Draw debug visualizations if debug mode is enabled
+        if (DEBUG_MODE) {
+            // Draw a faint "influence zone" around the planet to visualize minimum distance
+            planetGraphics.lineStyle(1, 0xffffff, 0.1);
+            planetGraphics.strokeCircle(planet.x, planet.y, radius + 200); // Visualize minimum distance
+            
+            // Draw the gravity field radius
+            planetGraphics.lineStyle(1, 0x00ffff, 0.05);
+            planetGraphics.strokeCircle(planet.x, planet.y, radius * 25); // Visualize gravity field
+            
+            // Draw a stronger inner gravity field for bullets
+            planetGraphics.lineStyle(1, 0xffff00, 0.05);
+            planetGraphics.strokeCircle(planet.x, planet.y, radius * 15); // Visualize bullet gravity field
+        }
+        
         // Draw damaged segments (cut out parts)
         if (segments.length > 0) {
             planetGraphics.fillStyle(0x000000, 1);
@@ -1029,12 +1291,24 @@ function renderPlanets() {
         
         // Draw planet owner name
         let ownerName = "Unclaimed";
+        let nameColor = '#FFFFFF';
+        
         if (planet.ownerId === socket.id) {
             ownerName = playerName + "'s Planet";
+            nameColor = '#FFFF00'; // Yellow for player's own planets
         } else if (otherPlayers[planet.ownerId]) {
             const otherPlayerName = playerNameTexts[planet.ownerId] ? 
                 playerNameTexts[planet.ownerId].text : "Player";
             ownerName = otherPlayerName + "'s Planet";
+            
+            // If this is a claimed planet (not original), show it differently
+            if (planet.id !== planet.ownerId) {
+                ownerName = "Claimed by " + otherPlayerName;
+            }
+        } else if (planet.ownerId !== planet.id) {
+            // Planet claimed by a player who is no longer connected
+            ownerName = "Abandoned Planet";
+            nameColor = '#AAAAAA';
         }
         
         // Check if text already exists for this planet
@@ -1045,7 +1319,7 @@ function renderPlanets() {
             // Create new text
             planetText = scene.add.text(planet.x, planet.y - radius - 20, ownerName, {
                 fontSize: '16px',
-                fill: '#FFFFFF',
+                fill: nameColor,
                 stroke: '#000000',
                 strokeThickness: 3,
                 fontStyle: 'bold'
@@ -1055,6 +1329,13 @@ function renderPlanets() {
         } else {
             // Update existing text
             planetText.setText(ownerName);
+            planetText.setStyle({
+                fontSize: '16px',
+                fill: nameColor,
+                stroke: '#000000',
+                strokeThickness: 3,
+                fontStyle: 'bold'
+            });
             planetText.x = planet.x;
             planetText.y = planet.y - radius - 20;
         }
@@ -1072,7 +1353,8 @@ function applyPlanetaryGravity(player, delta) {
         const distance = Math.sqrt(distanceSquared);
         
         // Skip if too far away (optimization)
-        if (distance > planet.radius * 10) return;
+        // Increased gravity effect radius from 10x to 25x the planet radius
+        if (distance > planet.radius * 25) return;
         
         // Calculate gravitational force (F = G * m1 * m2 / r^2)
         // We'll simplify by using radius as mass and a constant for G

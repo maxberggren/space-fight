@@ -69,16 +69,58 @@ io.on('connection', (socket) => {
         // If player is landed on a planet, handle takeoff
         if (player.landedOnPlanet && input.isThrusting) {
             // Player is thrusting, so they take off from the planet
+            console.log(`Player ${socket.id} taking off from planet ${player.landedOnPlanet}`);
+            
+            // Get the planet the player is taking off from
+            const planet = gameState.planets[player.landedOnPlanet];
+            
+            // Clear the landed state
             player.landedOnPlanet = null;
             
-            // Give a small boost away from the planet
-            const planet = gameState.planets[socket.id];
+            // Give a boost away from the planet
             if (planet) {
                 const dx = player.x - planet.x;
                 const dy = player.y - planet.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
                 const angle = Math.atan2(dy, dx);
+                
+                // Move player slightly away from planet surface to prevent immediate collision
+                const safeDistance = planet.radius + 30; // Add 30 units of clearance
+                const scaleFactor = safeDistance / distance;
+                player.x = planet.x + dx * scaleFactor;
+                player.y = planet.y + dy * scaleFactor;
+                
+                // Set velocity away from planet center with the takeoff boost value
                 player.velocity.x = Math.cos(angle) * PHYSICS.takeoffBoost;
                 player.velocity.y = Math.sin(angle) * PHYSICS.takeoffBoost;
+                
+                // Also set player angle to match takeoff direction
+                player.angle = angle * (180 / Math.PI);
+                
+                // Set temporary invulnerability to prevent immediate crash
+                player.invulnerable = true;
+                
+                // Clear any existing invulnerability timer
+                if (player.invulnerabilityTimer) {
+                    clearTimeout(player.invulnerabilityTimer);
+                }
+                
+                // Remove invulnerability after a short time
+                player.invulnerabilityTimer = setTimeout(() => {
+                    if (gameState.players[player.id]) {
+                        gameState.players[player.id].invulnerable = false;
+                        console.log(`Player ${player.id} is no longer invulnerable after takeoff`);
+                    }
+                }, 1500); // 1.5 seconds of invulnerability
+                
+                // Emit takeoff event
+                io.emit('playerTakeoff', {
+                    playerId: player.id,
+                    planetId: planet.id,
+                    x: player.x,
+                    y: player.y,
+                    angle: player.angle
+                });
             }
         }
 
@@ -405,18 +447,58 @@ function createPlanetForPlayer(playerId) {
     const player = gameState.players[playerId];
     if (!player) return;
     
-    // Create planet at a random position away from the player
-    const angle = Math.random() * Math.PI * 2;
-    const distance = 800 + Math.random() * 400; // Place planet 800-1200 units away
+    // Define minimum distance between planets
+    const MIN_PLANET_DISTANCE = 400; // Minimum distance between planet centers
+    
+    // Try to find a valid position for the new planet
+    let validPosition = false;
+    let attempts = 0;
+    let planetX, planetY, planetRadius, distance;
+    
+    while (!validPosition && attempts < 20) { // Limit attempts to prevent infinite loops
+        attempts++;
+        
+        // Create planet at a random position away from the player
+        const angle = Math.random() * Math.PI * 2;
+        const distanceFromPlayer = 800 + Math.random() * 400; // Place planet 800-1200 units away
+        
+        planetX = Math.cos(angle) * distanceFromPlayer;
+        planetY = Math.sin(angle) * distanceFromPlayer;
+        planetRadius = 100 + Math.random() * 50; // Random radius between 100-150
+        
+        // Check distance from all existing planets
+        validPosition = true; // Assume position is valid until proven otherwise
+        
+        for (const existingPlanetId in gameState.planets) {
+            const existingPlanet = gameState.planets[existingPlanetId];
+            const dx = existingPlanet.x - planetX;
+            const dy = existingPlanet.y - planetY;
+            distance = Math.sqrt(dx * dx + dy * dy);
+            
+            // If too close to an existing planet, position is invalid
+            if (distance < existingPlanet.radius + planetRadius + MIN_PLANET_DISTANCE) {
+                validPosition = false;
+                console.log(`Planet position attempt ${attempts} invalid: too close to planet ${existingPlanetId}`);
+                break;
+            }
+        }
+    }
+    
+    // If we couldn't find a valid position after max attempts, use the last attempted position
+    // but log a warning
+    if (!validPosition) {
+        console.warn(`Could not find valid planet position after ${attempts} attempts. Using last position.`);
+    }
     
     const planet = {
         id: playerId, // Use player ID as planet ID for easy reference
-        ownerId: playerId,
-        x: Math.cos(angle) * distance,
-        y: Math.sin(angle) * distance,
-        radius: 100 + Math.random() * 50, // Random radius between 100-150
+        ownerId: playerId, // Initially owned by the player who created it
+        x: planetX,
+        y: planetY,
+        radius: planetRadius,
         color: player.color,
-        segments: [] // Will store segments that are damaged
+        segments: [], // Will store segments that are damaged
+        originalOwner: playerId // Track the original owner
     };
     
     // Initialize planet with full health (no damaged segments)
@@ -439,7 +521,8 @@ function applyPlanetaryGravity(player) {
         const distance = Math.sqrt(distanceSquared);
         
         // Skip if too far away (optimization)
-        if (distance > planet.radius * 10) return;
+        // Increased gravity effect radius from 10x to 25x the planet radius
+        if (distance > planet.radius * 25) return;
         
         // Calculate gravitational force (F = G * m1 * m2 / r^2)
         // We'll simplify by using radius as mass and a constant for G
@@ -461,7 +544,8 @@ function applyPlanetaryGravityToBullet(bullet) {
         const distance = Math.sqrt(distanceSquared);
         
         // Skip if too far away (optimization)
-        if (distance > planet.radius * 5) return;
+        // Increased gravity effect radius from 5x to 15x the planet radius
+        if (distance > planet.radius * 15) return;
         
         // Calculate gravitational force (simplified)
         const force = PHYSICS.gravitationalConstant * planet.radius / distanceSquared * 0.3; // Reduced effect on bullets
@@ -477,6 +561,9 @@ function applyPlanetaryGravityToBullet(bullet) {
 function checkPlanetCollisions(player) {
     // Skip if player is already landed
     if (player.landedOnPlanet) return;
+    
+    // Skip collision check if player has recently taken off (they'll be invulnerable)
+    if (player.invulnerable) return;
     
     Object.values(gameState.planets).forEach(planet => {
         const dx = planet.x - player.x;
@@ -527,14 +614,36 @@ function checkPlanetCollisions(player) {
                 // Mark player as landed
                 player.landedOnPlanet = planet.id;
                 
-                // Emit landing event
+                // PLANET CLAIMING: Player claims this planet
+                const previousOwner = planet.ownerId;
+                const wasClaimed = previousOwner !== planet.id; // Check if it was already claimed by someone else
+                
+                // Update planet ownership
+                planet.ownerId = player.id;
+                planet.color = player.color;
+                
+                // Emit landing event with claiming info
                 io.emit('playerLanded', {
                     playerId: player.id,
                     planetId: planet.id,
                     x: player.x,
                     y: player.y,
-                    angle: player.angle
+                    angle: player.angle,
+                    claimed: true,
+                    previousOwner: previousOwner,
+                    wasClaimed: wasClaimed
                 });
+                
+                // Emit planet claimed event
+                io.emit('planetClaimed', {
+                    planetId: planet.id,
+                    newOwnerId: player.id,
+                    previousOwnerId: previousOwner,
+                    playerName: player.name,
+                    playerColor: player.color
+                });
+                
+                console.log(`Planet ${planet.id} claimed by player ${player.id} (${player.name})`);
             }
         }
     });
