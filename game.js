@@ -102,10 +102,10 @@ let pendingInputs = []; // Store inputs that haven't been processed by server
 
 // Camera variables
 let mainCamera;
-let targetZoom = 0.2; // Default very zoomed-out level
-let currentZoom = 0.2;
+let targetZoom = 0.3; // Default very zoomed-out level
+let currentZoom = 0.3;
 let zoomSpeed = 0.05; // Smooth transition speed
-let minZoom = 0.2; // Minimum zoom (most zoomed out)
+let minZoom = 0.25; // Minimum zoom (most zoomed out)
 let maxZoom = 1.1; // Maximum zoom when players are close (more zoomed in)
 let cameraMargin = 100; // Margin around players
 
