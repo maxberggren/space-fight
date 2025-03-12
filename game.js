@@ -37,54 +37,6 @@ window.addEventListener('resize', function() {
     game.scale.resize(window.innerWidth, window.innerHeight);
 });
 
-// Load shared configuration
-let PHYSICS, WORLD, GAME, NETWORK;
-
-// Fetch the shared configuration
-fetch('/shared-config.js')
-    .then(response => response.text())
-    .then(text => {
-        // Extract the configuration objects from the text
-        const configText = text.replace('// shared-config.js', '');
-        
-        // Create a function to evaluate the configuration
-        const configFunc = new Function(`
-            ${configText}
-            return { PHYSICS, WORLD, GAME, NETWORK };
-        `);
-        
-        // Get the configuration objects
-        const config = configFunc();
-        PHYSICS = config.PHYSICS;
-        WORLD = config.WORLD;
-        GAME = config.GAME;
-        NETWORK = config.NETWORK;
-        
-        console.log('Shared configuration loaded:', config);
-    })
-    .catch(error => {
-        console.error('Error loading shared configuration:', error);
-        // Fallback values if loading fails
-        PHYSICS = {
-            thrustPower: 0.01,
-            maxSpeed: 1,
-            drag: 0.9
-        };
-        WORLD = {
-            size: 10000,
-            maxPlayerDistance: 1200
-        };
-        GAME = {
-            bulletSpeed: 0.6,
-            bulletLifetime: 2000,
-            respawnInvulnerabilityTime: 3000,
-            hitRadius: 20
-        };
-        NETWORK = {
-            updateRate: 30
-        };
-    });
-
 // Game variables
 let socket;
 let myPlayer;
@@ -97,6 +49,24 @@ let explosionSound;
 let respawnSound;
 let sequenceNumber = 0; // Add sequence number for input prediction
 let pendingInputs = []; // Store inputs that haven't been processed by server
+let playerName = "Player"; // Default player name
+let playerColor = 0x0000ff; // Default player color (blue)
+let playerNameTexts = {}; // Store text objects for player names
+let scene; // Store reference to the current scene
+
+// Available colors for player ships with friendly names
+const PLAYER_COLORS = [
+    { value: 0x0000ff, name: 'Blue' },
+    { value: 0xff0000, name: 'Red' },
+    { value: 0x00ff00, name: 'Green' },
+    { value: 0xffff00, name: 'Yellow' },
+    { value: 0xff00ff, name: 'Magenta' },
+    { value: 0x00ffff, name: 'Cyan' },
+    { value: 0xff8800, name: 'Orange' },
+    { value: 0x8800ff, name: 'Purple' },
+    { value: 0xffffff, name: 'White' },
+    { value: 0x888888, name: 'Gray' }
+];
 
 // Camera variables
 let mainCamera;
@@ -106,6 +76,65 @@ let zoomSpeed = 0.05; // Smooth transition speed
 let minZoom = 0.25; // Minimum zoom (most zoomed out)
 let maxZoom = 1.1; // Maximum zoom when players are close (more zoomed in)
 let cameraMargin = 100; // Margin around players
+
+// Initialize HTML UI elements
+function initializeUI() {
+    // Create color options
+    const colorOptionsContainer = document.getElementById('color-options');
+    
+    // Clear any existing color options
+    colorOptionsContainer.innerHTML = '';
+    
+    // Add color options
+    PLAYER_COLORS.forEach((color, index) => {
+        const colorOption = document.createElement('div');
+        colorOption.className = 'color-option';
+        colorOption.style.backgroundColor = '#' + color.value.toString(16).padStart(6, '0');
+        
+        // Add tooltip
+        const tooltip = document.createElement('div');
+        tooltip.className = 'color-tooltip';
+        tooltip.textContent = color.name;
+        colorOption.appendChild(tooltip);
+        
+        // Set selected state for current color
+        if (color.value === playerColor) {
+            colorOption.classList.add('selected');
+        }
+        
+        // Add click handler
+        colorOption.addEventListener('click', () => {
+            // Update selected color
+            playerColor = color.value;
+            
+            // Update UI
+            document.querySelectorAll('.color-option').forEach(el => {
+                el.classList.remove('selected');
+            });
+            colorOption.classList.add('selected');
+            
+            // Update player info
+            updatePlayerInfo();
+        });
+        
+        colorOptionsContainer.appendChild(colorOption);
+    });
+    
+    // Set up name input handler
+    const nameInput = document.getElementById('player-name');
+    nameInput.value = playerName;
+    
+    nameInput.addEventListener('change', () => {
+        playerName = nameInput.value.trim();
+        updatePlayerInfo();
+    });
+    
+    // Also update on input to be more responsive
+    nameInput.addEventListener('input', () => {
+        playerName = nameInput.value.trim();
+        updatePlayerInfo();
+    });
+}
 
 // Preload game assets
 function preload() {
@@ -120,6 +149,9 @@ function preload() {
 
 // Create game objects
 function create() {
+    // Store reference to the current scene
+    scene = this;
+    
     // Set up the world bounds to be much larger than the visible area
     // Use WORLD.size if available, otherwise use fallback
     const worldSize = WORLD ? WORLD.size : 10000;
@@ -183,11 +215,17 @@ function create() {
         frameRate: 20,
         hideOnComplete: true
     });
+    
+    // Initialize HTML UI
+    initializeUI();
 }
 
 function setupSocketHandlers(scene) {
     socket.on('connect', () => {
         console.log('Connected to server');
+        
+        // Send initial player info when connected
+        updatePlayerInfo();
     });
 
     socket.on('gameState', (state) => {
@@ -196,26 +234,56 @@ function setupSocketHandlers(scene) {
             const playerData = state.players[playerId];
             if (playerId === socket.id) {
                 // Create our player
-                myPlayer = createPlayerTriangle(scene, playerData.x, playerData.y, 0x0000ff, playerData.angle);
+                myPlayer = createPlayerTriangle(scene, playerData.x, playerData.y, 
+                    playerData.color || playerColor, playerData.angle);
                 myPlayer.id = playerId;
                 // Set initial invulnerability state
                 updatePlayerInvulnerability(myPlayer, playerData.invulnerable);
+                
+                // Update our name and color if server has them
+                if (playerData.name) {
+                    playerName = playerData.name;
+                    document.getElementById('player-name').value = playerName;
+                }
+                if (playerData.color) {
+                    playerColor = playerData.color;
+                    // Update color selection in UI
+                    document.querySelectorAll('.color-option').forEach(el => {
+                        const colorHex = '#' + playerData.color.toString(16).padStart(6, '0');
+                        if (el.style.backgroundColor === colorHex) {
+                            el.classList.add('selected');
+                        } else {
+                            el.classList.remove('selected');
+                        }
+                    });
+                }
+                
+                // Create name text for our player
+                createPlayerNameText(scene, playerId, playerData.name || playerName);
             } else {
                 // Create other players
-                const otherPlayer = createPlayerTriangle(scene, playerData.x, playerData.y, 0xff0000, playerData.angle);
+                const otherPlayer = createPlayerTriangle(scene, playerData.x, playerData.y, 
+                    playerData.color || 0xff0000, playerData.angle);
                 otherPlayer.id = playerId;
                 otherPlayers[playerId] = otherPlayer;
                 // Set initial invulnerability state
                 updatePlayerInvulnerability(otherPlayer, playerData.invulnerable);
+                
+                // Create name text for other player
+                createPlayerNameText(scene, playerId, playerData.name || "Player");
             }
         });
     });
 
     socket.on('playerJoined', (playerData) => {
         if (playerData.id !== socket.id) {
-            const newPlayer = createPlayerTriangle(scene, playerData.x, playerData.y, 0xff0000, playerData.angle);
+            const newPlayer = createPlayerTriangle(scene, playerData.x, playerData.y, 
+                playerData.color || 0xff0000, playerData.angle);
             newPlayer.id = playerData.id;
             otherPlayers[playerData.id] = newPlayer;
+            
+            // Create name text for new player
+            createPlayerNameText(scene, playerData.id, playerData.name || "Player");
         }
     });
 
@@ -223,6 +291,46 @@ function setupSocketHandlers(scene) {
         if (otherPlayers[playerId]) {
             otherPlayers[playerId].destroy();
             delete otherPlayers[playerId];
+            
+            // Remove player name text
+            if (playerNameTexts[playerId]) {
+                playerNameTexts[playerId].destroy();
+                delete playerNameTexts[playerId];
+            }
+        }
+    });
+
+    socket.on('playerInfoUpdate', (playerData) => {
+        // Update other player's info (name, color)
+        if (playerData.id !== socket.id && otherPlayers[playerData.id]) {
+            const otherPlayer = otherPlayers[playerData.id];
+            
+            // Update player name
+            if (playerData.name && playerNameTexts[playerData.id]) {
+                playerNameTexts[playerData.id].setText(playerData.name);
+            }
+            
+            // Update player color - recreate the triangle with new color
+            if (playerData.color) {
+                const x = otherPlayer.x;
+                const y = otherPlayer.y;
+                const angle = otherPlayer.angle;
+                
+                // Store any custom properties
+                const isInvulnerable = otherPlayer.getData('isInvulnerable');
+                const shield = otherPlayer.shield;
+                
+                // Remove old player sprite
+                otherPlayer.destroy();
+                
+                // Create new player sprite with updated color
+                const updatedPlayer = createPlayerTriangle(scene, x, y, playerData.color, angle);
+                updatedPlayer.id = playerData.id;
+                otherPlayers[playerData.id] = updatedPlayer;
+                
+                // Restore custom properties
+                updatePlayerInvulnerability(updatedPlayer, isInvulnerable);
+            }
         }
     });
 
@@ -260,6 +368,12 @@ function setupSocketHandlers(scene) {
                         myPlayer.y = playerData.y;
                     }
                 }
+                
+                // Update player name position
+                if (playerNameTexts[playerId]) {
+                    playerNameTexts[playerId].x = myPlayer.x;
+                    playerNameTexts[playerId].y = myPlayer.y + 30;
+                }
             } else if (otherPlayers[playerId]) {
                 // Update other players with interpolation for smoother movement
                 const otherPlayer = otherPlayers[playerId];
@@ -279,12 +393,79 @@ function setupSocketHandlers(scene) {
                 
                 // Update invulnerability state with visual effect
                 updatePlayerInvulnerability(otherPlayer, playerData.invulnerable);
+                
+                // Update player name position
+                if (playerNameTexts[playerId]) {
+                    playerNameTexts[playerId].x = otherPlayer.x;
+                    playerNameTexts[playerId].y = otherPlayer.y + 30;
+                }
             }
         });
 
         // Update bullets
         updateBulletsFromState(scene, state.bullets);
     });
+}
+
+// Create text for player names
+function createPlayerNameText(scene, playerId, name) {
+    // Create text object for player name
+    const nameText = scene.add.text(0, 0, name, {
+        fontSize: '14px',
+        fill: '#FFFFFF',
+        stroke: '#000000',
+        strokeThickness: 3,
+        fontStyle: 'bold'
+    });
+    nameText.setOrigin(0.5, 0);
+    
+    // Store reference to name text
+    playerNameTexts[playerId] = nameText;
+    
+    // Set initial position
+    const player = playerId === socket.id ? myPlayer : otherPlayers[playerId];
+    if (player) {
+        nameText.x = player.x;
+        nameText.y = player.y + 30; // Position below player
+    }
+}
+
+// Update player info (name and color) and send to server
+function updatePlayerInfo() {
+    if (!socket || !socket.connected) return;
+    
+    // Send updated player info to server
+    socket.emit('updatePlayerInfo', {
+        name: playerName,
+        color: playerColor
+    });
+    
+    // Update local player if it exists
+    if (myPlayer && scene) {
+        // Update name text
+        if (playerNameTexts[socket.id]) {
+            playerNameTexts[socket.id].setText(playerName);
+        }
+        
+        // Update player color - recreate the triangle with new color
+        const x = myPlayer.x;
+        const y = myPlayer.y;
+        const angle = myPlayer.angle;
+        
+        // Store any custom properties
+        const isInvulnerable = myPlayer.getData('isInvulnerable');
+        const shield = myPlayer.shield;
+        
+        // Remove old player sprite
+        myPlayer.destroy();
+        
+        // Create new player sprite with updated color
+        myPlayer = createPlayerTriangle(scene, x, y, playerColor, angle);
+        myPlayer.id = socket.id;
+        
+        // Restore custom properties
+        updatePlayerInvulnerability(myPlayer, isInvulnerable);
+    }
 }
 
 // Function to update player invulnerability with visual feedback
@@ -422,10 +603,22 @@ function update(time, delta) {
         myPlayer.shield.y = myPlayer.y;
     }
     
+    // Update player name positions
+    if (playerNameTexts[socket.id]) {
+        playerNameTexts[socket.id].x = myPlayer.x;
+        playerNameTexts[socket.id].y = myPlayer.y + 30;
+    }
+    
     Object.values(otherPlayers).forEach(player => {
         if (player.shield) {
             player.shield.x = player.x;
             player.shield.y = player.y;
+        }
+        
+        // Update name position for this player
+        if (playerNameTexts[player.id]) {
+            playerNameTexts[player.id].x = player.x;
+            playerNameTexts[player.id].y = player.y + 30;
         }
         
         if (player.oldX !== undefined && player.targetX !== undefined) {

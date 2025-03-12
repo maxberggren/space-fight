@@ -30,6 +30,8 @@ io.on('connection', (socket) => {
         velocity: { x: 0, y: 0 },
         isThrusting: false,
         health: 100,
+        name: "Player", // Default player name
+        color: 0x0000ff, // Default player color (blue)
         invulnerable: true,
         lastProcessedInput: 0,
         lastShootTime: null
@@ -63,7 +65,7 @@ io.on('connection', (socket) => {
         player.isThrusting = input.isThrusting;
         player.angle = input.angle;
 
-        // Handle shooting with cooldown - REMOVED invulnerability check
+        // Handle shooting with cooldown
         const now = Date.now();
         if (input.isShooting) {
             console.log(`Shooting attempt from player ${player.id}, lastShootTime: ${player.lastShootTime}, cooldown: ${GAME.shootCooldown}ms`);
@@ -92,6 +94,30 @@ io.on('connection', (socket) => {
         }
     });
 
+    // Handle player info updates (name and color)
+    socket.on('updatePlayerInfo', (info) => {
+        const player = gameState.players[socket.id];
+        if (!player) return;
+        
+        // Update player info
+        if (info.name) {
+            player.name = info.name.substring(0, 20); // Limit name length
+        }
+        
+        if (info.color) {
+            player.color = info.color;
+        }
+        
+        console.log(`Player ${socket.id} updated info: name=${player.name}, color=${player.color}`);
+        
+        // Broadcast player info update to all clients
+        io.emit('playerInfoUpdate', {
+            id: socket.id,
+            name: player.name,
+            color: player.color
+        });
+    });
+
     // Handle disconnect
     socket.on('disconnect', () => {
         console.log('Player disconnected:', socket.id);
@@ -118,6 +144,8 @@ setInterval(() => {
             x: player.x,
             y: player.y,
             angle: player.angle,
+            name: player.name,
+            color: player.color,
             invulnerable: player.invulnerable,
             lastProcessedInput: player.lastProcessedInput
         };

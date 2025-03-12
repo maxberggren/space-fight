@@ -4,7 +4,7 @@
 // Physics constants
 const PHYSICS = {
     thrustPower: 0.1,  // Acceleration per frame when thrusting
-    maxSpeed: 10,        // Maximum velocity
+    maxSpeed: 20,        // Maximum velocity
     drag: 0.999,          // Drag coefficient (0.999 = 0.1% slowdown per frame)
 };
 

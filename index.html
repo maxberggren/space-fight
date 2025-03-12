@@ -14,6 +14,7 @@
             height: 100%;
             overflow: hidden;
             background-color: #000;
+            font-family: Arial, sans-serif;
         }
         
         canvas {
@@ -26,9 +27,139 @@
             left: 50%;
             transform: translate(-50%, -50%);
         }
+        
+        /* Menu bar styles */
+        #menu-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 50px;
+            background-color: rgba(0, 0, 0, 0.7);
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+            z-index: 1000;
+            box-sizing: border-box;
+        }
+        
+        .menu-item {
+            margin-right: 20px;
+            color: white;
+            display: flex;
+            align-items: center;
+        }
+        
+        .menu-item label {
+            margin-right: 10px;
+            font-size: 16px;
+        }
+        
+        #player-name {
+            padding: 5px 8px;
+            border-radius: 4px;
+            border: 1px solid #444;
+            background-color: #222;
+            color: white;
+            width: 150px;
+            font-size: 14px;
+        }
+        
+        #color-options {
+            display: flex;
+            align-items: center;
+        }
+        
+        .color-option {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            margin: 0 5px;
+            cursor: pointer;
+            border: 2px solid transparent;
+            position: relative;
+        }
+        
+        .color-option.selected {
+            border-color: white;
+        }
+        
+        .color-tooltip {
+            position: absolute;
+            top: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            color: white;
+            padding: 3px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            white-space: nowrap;
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+        }
+        
+        .color-option:hover .color-tooltip {
+            opacity: 1;
+        }
     </style>
 </head>
 <body>
+    <!-- Menu bar overlay -->
+    <div id="menu-bar">
+        <div class="menu-item">
+            <label for="player-name">Name:</label>
+            <input type="text" id="player-name" placeholder="Enter name" value="Player" maxlength="20">
+        </div>
+        <div class="menu-item">
+            <label>Color:</label>
+            <div id="color-options">
+                <!-- Color options will be added here by JavaScript -->
+            </div>
+        </div>
+    </div>
+    
+    <script src="shared-config.js"></script>
     <script src="game.js"></script>
+    
+    <script>
+        // Initialize color options immediately to avoid waiting for Phaser
+        const PLAYER_COLORS = [
+            { value: 0x0000ff, name: 'Blue' },
+            { value: 0xff0000, name: 'Red' },
+            { value: 0x00ff00, name: 'Green' },
+            { value: 0xffff00, name: 'Yellow' },
+            { value: 0xff00ff, name: 'Magenta' },
+            { value: 0x00ffff, name: 'Cyan' },
+            { value: 0xff8800, name: 'Orange' },
+            { value: 0x8800ff, name: 'Purple' },
+            { value: 0xffffff, name: 'White' },
+            { value: 0x888888, name: 'Gray' }
+        ];
+        
+        // Create initial color options
+        const colorOptionsContainer = document.getElementById('color-options');
+        let defaultColor = 0x0000ff; // Blue
+        
+        PLAYER_COLORS.forEach((color) => {
+            const colorOption = document.createElement('div');
+            colorOption.className = 'color-option';
+            colorOption.style.backgroundColor = '#' + color.value.toString(16).padStart(6, '0');
+            
+            // Add tooltip
+            const tooltip = document.createElement('div');
+            tooltip.className = 'color-tooltip';
+            tooltip.textContent = color.name;
+            colorOption.appendChild(tooltip);
+            
+            // Set selected state for default color
+            if (color.value === defaultColor) {
+                colorOption.classList.add('selected');
+            }
+            
+            colorOptionsContainer.appendChild(colorOption);
+        });
+    </script>
 </body>
 </html> 
