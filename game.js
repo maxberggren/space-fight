@@ -53,6 +53,8 @@ let playerName = "Player"; // Default player name
 let playerColor = 0x0000ff; // Default player color (blue)
 let playerNameTexts = {}; // Store text objects for player names
 let scene; // Store reference to the current scene
+let planets = {}; // Store planet objects
+let planetGraphics; // Graphics object for rendering planets
 
 // Available colors for player ships with friendly names
 const PLAYER_COLORS = [
@@ -145,6 +147,61 @@ function preload() {
     this.load.audio('shoot', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/audio/SoundEffects/blaster.mp3');
     this.load.audio('explosion', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/audio/SoundEffects/explosion.mp3');
     this.load.audio('respawn', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/audio/SoundEffects/alien_death1.wav');
+    
+    // Try to load planet texture, with fallback to generate one if it fails
+    this.load.image('planet', 'assets/planet.png');
+    this.load.on('filecomplete-image-planet', () => {
+        console.log('Planet texture loaded successfully');
+    });
+    
+    this.load.on('loaderror', (fileObj) => {
+        if (fileObj.key === 'planet') {
+            console.log('Planet texture failed to load, generating one programmatically');
+            this.generatePlanetTexture();
+        }
+    });
+}
+
+// Generate a planet texture programmatically
+function generatePlanetTexture() {
+    if (!scene) return;
+    
+    // Create graphics object for the planet texture
+    const graphics = scene.add.graphics();
+    
+    // Set size
+    const size = 256;
+    
+    // Draw a circular planet with some texture
+    const centerX = size / 2;
+    const centerY = size / 2;
+    const radius = size / 2 - 10;
+    
+    // Draw the main circle
+    graphics.fillStyle(0x888888, 1);
+    graphics.fillCircle(centerX, centerY, radius);
+    
+    // Add some craters
+    for (let i = 0; i < 15; i++) {
+        const craterX = centerX + (Math.random() * 2 - 1) * radius * 0.8;
+        const craterY = centerY + (Math.random() * 2 - 1) * radius * 0.8;
+        const craterRadius = 5 + Math.random() * 15;
+        
+        graphics.fillStyle(0x000000, 0.3);
+        graphics.fillCircle(craterX, craterY, craterRadius);
+    }
+    
+    // Add a subtle highlight
+    graphics.fillStyle(0xffffff, 0.1);
+    graphics.fillCircle(centerX - radius * 0.3, centerY - radius * 0.3, radius * 0.5);
+    
+    // Generate texture
+    graphics.generateTexture('planet', size, size);
+    
+    // Destroy the graphics object as we no longer need it
+    graphics.destroy();
+    
+    console.log('Planet texture generated programmatically');
 }
 
 // Create game objects
@@ -163,6 +220,9 @@ function create() {
     
     // Create a grid background to visualize the infinite world
     createGridBackground(this);
+    
+    // Create graphics object for planets
+    planetGraphics = this.add.graphics();
     
     // Create bullet graphics
     const bulletGraphics = this.add.graphics();
@@ -273,6 +333,14 @@ function setupSocketHandlers(scene) {
                 createPlayerNameText(scene, playerId, playerData.name || "Player");
             }
         });
+        
+        // Initialize planets
+        if (state.planets) {
+            Object.keys(state.planets).forEach(planetId => {
+                planets[planetId] = state.planets[planetId];
+                console.log(`Initialized planet ${planetId} at (${planets[planetId].x}, ${planets[planetId].y})`);
+            });
+        }
     });
 
     socket.on('playerJoined', (playerData) => {
@@ -404,6 +472,110 @@ function setupSocketHandlers(scene) {
 
         // Update bullets
         updateBulletsFromState(scene, state.bullets);
+
+        // Update planets
+        if (state.planets) {
+            // Update existing planets and add new ones
+            Object.keys(state.planets).forEach(planetId => {
+                planets[planetId] = state.planets[planetId];
+            });
+            
+            // Remove planets that no longer exist
+            Object.keys(planets).forEach(planetId => {
+                if (!state.planets[planetId]) {
+                    delete planets[planetId];
+                }
+            });
+        }
+    });
+    
+    // Handle planet creation
+    socket.on('planetCreated', (planetData) => {
+        console.log(`Planet created: ${planetData.id} at (${planetData.x}, ${planetData.y})`);
+        planets[planetData.id] = planetData;
+    });
+    
+    // Handle planet hit
+    socket.on('planetHit', (data) => {
+        console.log(`Planet hit: ${data.planetId} at angle ${data.impactAngle.toFixed(2)}`);
+        
+        // Create explosion effect at impact point
+        const explosion = scene.add.sprite(data.x, data.y, 'explosion');
+        explosion.setScale(0.5);
+        explosion.play('explode');
+        explosion.once('animationcomplete', () => {
+            explosion.destroy();
+        });
+        
+        // Play explosion sound
+        explosionSound.play({ volume: 0.3 });
+    });
+    
+    // Handle planet removed
+    socket.on('planetRemoved', (planetId) => {
+        console.log(`Planet removed: ${planetId}`);
+        delete planets[planetId];
+    });
+    
+    // Handle player crashed on planet
+    socket.on('playerCrashed', (data) => {
+        console.log(`Player crashed: ${data.playerId} on planet ${data.planetId}`);
+        
+        // Create large explosion effect
+        const explosion = scene.add.sprite(data.x, data.y, 'explosion');
+        explosion.setScale(2);
+        explosion.play('explode');
+        explosion.once('animationcomplete', () => {
+            explosion.destroy();
+        });
+        
+        // Play explosion sound
+        explosionSound.play({ volume: 0.6 });
+    });
+    
+    // Handle player landed on planet
+    socket.on('playerLanded', (data) => {
+        console.log(`Player landed: ${data.playerId} on planet ${data.planetId}`);
+        
+        // Create small dust effect
+        const dust = scene.add.sprite(data.x, data.y, 'explosion');
+        dust.setScale(0.3);
+        dust.setAlpha(0.5);
+        dust.play('explode');
+        dust.once('animationcomplete', () => {
+            dust.destroy();
+        });
+    });
+    
+    // Handle planet severely damaged
+    socket.on('planetSeverelyDamaged', (data) => {
+        console.log(`Planet severely damaged: ${data.planetId}`);
+        
+        // Create visual effect
+        if (planets[data.planetId]) {
+            const planet = planets[data.planetId];
+            
+            // Create multiple explosions around the planet
+            for (let i = 0; i < 5; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const distance = planet.radius * 0.8;
+                const x = planet.x + Math.cos(angle) * distance;
+                const y = planet.y + Math.sin(angle) * distance;
+                
+                // Add delayed explosions
+                scene.time.delayedCall(i * 200, () => {
+                    const explosion = scene.add.sprite(x, y, 'explosion');
+                    explosion.setScale(0.7);
+                    explosion.play('explode');
+                    explosion.once('animationcomplete', () => {
+                        explosion.destroy();
+                    });
+                    
+                    // Play explosion sound
+                    explosionSound.play({ volume: 0.4 });
+                });
+            }
+        }
     });
 }
 
@@ -636,6 +808,9 @@ function update(time, delta) {
             player.angle = player.oldAngle + angleDiff * player.interpTime;
         }
     });
+
+    // Render planets
+    renderPlanets();
 }
 
 function updateMultiplayerCamera() {
@@ -805,6 +980,111 @@ function createPlayerTriangle(scene, x, y, color, angle) {
     return ship;
 }
 
+// Render planets
+function renderPlanets() {
+    if (!planetGraphics || !scene) return;
+    
+    // Clear previous planet graphics
+    planetGraphics.clear();
+    
+    // Render each planet
+    Object.values(planets).forEach(planet => {
+        if (!planet || typeof planet.x !== 'number' || typeof planet.y !== 'number') {
+            console.warn('Invalid planet data:', planet);
+            return;
+        }
+        
+        // Get planet color (default to gray if not specified)
+        const color = planet.color || 0x888888;
+        
+        // Draw planet base
+        planetGraphics.fillStyle(color, 0.7);
+        planetGraphics.lineStyle(2, 0xffffff, 0.8);
+        
+        // Draw planet with damaged segments
+        const segments = planet.segments || [];
+        const segmentSize = 10; // Degrees per segment (matches server)
+        const radius = planet.radius || 100;
+        
+        // Draw complete circle first as base
+        planetGraphics.fillCircle(planet.x, planet.y, radius);
+        planetGraphics.strokeCircle(planet.x, planet.y, radius);
+        
+        // Draw damaged segments (cut out parts)
+        if (segments.length > 0) {
+            planetGraphics.fillStyle(0x000000, 1);
+            
+            segments.forEach(segmentIndex => {
+                const startAngle = segmentIndex * segmentSize * (Math.PI / 180);
+                const endAngle = (segmentIndex + 1) * segmentSize * (Math.PI / 180);
+                
+                // Draw segment
+                planetGraphics.beginPath();
+                planetGraphics.moveTo(planet.x, planet.y);
+                planetGraphics.arc(planet.x, planet.y, radius + 5, startAngle, endAngle);
+                planetGraphics.closePath();
+                planetGraphics.fillPath();
+            });
+        }
+        
+        // Draw planet owner name
+        let ownerName = "Unclaimed";
+        if (planet.ownerId === socket.id) {
+            ownerName = playerName + "'s Planet";
+        } else if (otherPlayers[planet.ownerId]) {
+            const otherPlayerName = playerNameTexts[planet.ownerId] ? 
+                playerNameTexts[planet.ownerId].text : "Player";
+            ownerName = otherPlayerName + "'s Planet";
+        }
+        
+        // Check if text already exists for this planet
+        const textKey = `planet_text_${planet.id}`;
+        let planetText = scene.children.getByName(textKey);
+        
+        if (!planetText) {
+            // Create new text
+            planetText = scene.add.text(planet.x, planet.y - radius - 20, ownerName, {
+                fontSize: '16px',
+                fill: '#FFFFFF',
+                stroke: '#000000',
+                strokeThickness: 3,
+                fontStyle: 'bold'
+            });
+            planetText.setName(textKey);
+            planetText.setOrigin(0.5, 0.5);
+        } else {
+            // Update existing text
+            planetText.setText(ownerName);
+            planetText.x = planet.x;
+            planetText.y = planet.y - radius - 20;
+        }
+    });
+}
+
+// Apply planetary gravity to player movement
+function applyPlanetaryGravity(player, delta) {
+    if (!PHYSICS || !PHYSICS.gravitationalConstant) return;
+    
+    Object.values(planets).forEach(planet => {
+        const dx = planet.x - player.x;
+        const dy = planet.y - player.y;
+        const distanceSquared = dx * dx + dy * dy;
+        const distance = Math.sqrt(distanceSquared);
+        
+        // Skip if too far away (optimization)
+        if (distance > planet.radius * 10) return;
+        
+        // Calculate gravitational force (F = G * m1 * m2 / r^2)
+        // We'll simplify by using radius as mass and a constant for G
+        const force = PHYSICS.gravitationalConstant * planet.radius / distanceSquared;
+        
+        // Apply force in direction of planet
+        const angle = Math.atan2(dy, dx);
+        player.body.velocity.x += Math.cos(angle) * force * delta;
+        player.body.velocity.y += Math.sin(angle) * force * delta;
+    });
+}
+
 // Apply an input to a player
 function applyInput(player, input) {
     if (!PHYSICS) return;
@@ -826,4 +1106,13 @@ function applyInput(player, input) {
             player.body.velocity.y *= scale;
         }
     }
+    
+    // Apply gravity from planets
+    applyPlanetaryGravity(player, 1);
+}
+
+// Create planet graphics
+function createPlanetGraphics(scene, planet) {
+    // Planet will be rendered in the update function
+    console.log(`Creating planet graphics for planet ${planet.id} at (${planet.x}, ${planet.y})`);
 } 
