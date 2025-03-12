@@ -29,7 +29,6 @@ io.on('connection', (socket) => {
         angle: spawnPoint.angle,
         velocity: { x: 0, y: 0 },
         isThrusting: false,
-        score: 0,
         health: 100,
         invulnerable: true,
         lastProcessedInput: 0,
@@ -119,7 +118,6 @@ setInterval(() => {
             x: player.x,
             y: player.y,
             angle: player.angle,
-            score: player.score,
             invulnerable: player.invulnerable,
             lastProcessedInput: player.lastProcessedInput
         };
@@ -212,8 +210,7 @@ function updateBullets() {
                         // Player hit
                         const shooter = gameState.players[bullet.ownerId];
                         if (shooter) {
-                            shooter.score++;
-                            console.log(`HIT CONFIRMED! Player ${shooter.id.substring(0,4)} scored a hit on ${player.id.substring(0,4)}! Score: ${shooter.score}`);
+                            console.log(`HIT CONFIRMED! Player ${shooter.id.substring(0,4)} hit ${player.id.substring(0,4)}!`);
                             
                             // Emit hit event to all clients
                             io.emit('playerHit', {

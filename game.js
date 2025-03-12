@@ -95,8 +95,6 @@ let shootKey;
 let shootSound;
 let explosionSound;
 let respawnSound;
-let debugText;
-let scoreTexts = {};
 let sequenceNumber = 0; // Add sequence number for input prediction
 let pendingInputs = []; // Store inputs that haven't been processed by server
 
@@ -185,17 +183,6 @@ function create() {
         frameRate: 20,
         hideOnComplete: true
     });
-    
-    // Create debug text
-    if (DEBUG_MODE) {
-        debugText = this.add.text(20, this.cameras.main.height - 40, 'Debug: Game started', {
-            fontSize: '16px',
-            fill: '#00FF00',
-            stroke: '#000000',
-            strokeThickness: 1
-        });
-        debugText.setScrollFactor(0);
-    }
 }
 
 function setupSocketHandlers(scene) {
@@ -220,7 +207,6 @@ function setupSocketHandlers(scene) {
                 otherPlayers[playerId] = otherPlayer;
                 // Set initial invulnerability state
                 updatePlayerInvulnerability(otherPlayer, playerData.invulnerable);
-                createScoreText(scene, playerId);
             }
         });
     });
@@ -230,7 +216,6 @@ function setupSocketHandlers(scene) {
             const newPlayer = createPlayerTriangle(scene, playerData.x, playerData.y, 0xff0000, playerData.angle);
             newPlayer.id = playerData.id;
             otherPlayers[playerData.id] = newPlayer;
-            createScoreText(scene, playerData.id);
         }
     });
 
@@ -238,10 +223,6 @@ function setupSocketHandlers(scene) {
         if (otherPlayers[playerId]) {
             otherPlayers[playerId].destroy();
             delete otherPlayers[playerId];
-            if (scoreTexts[playerId]) {
-                scoreTexts[playerId].destroy();
-                delete scoreTexts[playerId];
-            }
         }
     });
 
@@ -251,9 +232,6 @@ function setupSocketHandlers(scene) {
             const playerData = state.players[playerId];
             
             if (playerId === socket.id && myPlayer) {
-                // Update score
-                updateScoreText(playerId, playerData.score);
-                
                 // Update invulnerability state with visual effect
                 updatePlayerInvulnerability(myPlayer, playerData.invulnerable);
                 
@@ -301,7 +279,6 @@ function setupSocketHandlers(scene) {
                 
                 // Update invulnerability state with visual effect
                 updatePlayerInvulnerability(otherPlayer, playerData.invulnerable);
-                updateScoreText(playerId, playerData.score);
             }
         });
 
@@ -536,37 +513,6 @@ function updateMultiplayerCamera() {
     // Update camera position and zoom
     mainCamera.pan(targetX, targetY, 100, 'Linear', true);
     mainCamera.zoomTo(currentZoom, 100);
-    
-    // Update debug text if enabled
-    if (DEBUG_MODE && debugText) {
-        const playerCount = Object.keys(otherPlayers).length + 1;
-        const nearbyCount = nearbyPlayers.length;
-        debugText.setText(`Players: ${playerCount}, Nearby: ${nearbyCount}, Zoom: ${currentZoom.toFixed(3)}`);
-        debugText.setScrollFactor(0);
-        debugText.setPosition(20, mainCamera.height - 40);
-    }
-}
-
-function createScoreText(scene, playerId) {
-    const isMyPlayer = playerId === socket.id;
-    const color = isMyPlayer ? '#0000FF' : '#FF0000';
-    const x = isMyPlayer ? 20 : game.scale.width - 120;
-    
-    scoreTexts[playerId] = scene.add.text(x, 20, `${isMyPlayer ? 'You' : 'Player'}: 0`, {
-        fontSize: '24px', 
-        fill: color,
-        stroke: '#000000',
-        strokeThickness: 2
-    });
-    
-    scoreTexts[playerId].setScrollFactor(0);
-}
-
-function updateScoreText(playerId, score) {
-    if (scoreTexts[playerId]) {
-        const isMyPlayer = playerId === socket.id;
-        scoreTexts[playerId].setText(`${isMyPlayer ? 'You' : 'Player'}: ${score}`);
-    }
 }
 
 function updateBulletsFromState(scene, bulletState) {
@@ -597,15 +543,6 @@ function updateBulletsFromState(scene, bulletState) {
                 console.error("Error creating bullet:", error);
             }
         });
-    }
-    
-    // Debug info
-    if (DEBUG_MODE && debugText) {
-        const bulletCount = bulletState ? bulletState.length : 0;
-        const playerCount = Object.keys(otherPlayers).length + 1;
-        debugText.setText(`Players: ${playerCount}, Bullets: ${bulletCount}, My ID: ${socket?.id || 'unknown'}`);
-        debugText.setPosition(20, scene.cameras.main.height - 40);
-        debugText.setScrollFactor(0);
     }
 }
 
