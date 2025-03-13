@@ -31,7 +31,7 @@ const GAME = {
 
 // Network settings
 const NETWORK = {
-    updateRate: 40      // Server updates per second
+    updateRate: 30      // Server updates per second
 };
 
 // Export for Node.js (server)
