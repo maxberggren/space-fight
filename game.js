@@ -54,7 +54,7 @@ let playerColor = 0x0000ff; // Default player color (blue)
 let playerNameTexts = {}; // Store text objects for player names
 let scene; // Store reference to the current scene
 let planets = {}; // Store planet objects
-let planetGraphics; // Graphics object for rendering planets
+let planetGraphics = []; // Graphics object for rendering planets
 
 // Available colors for player ships with friendly names
 const PLAYER_COLORS = [
@@ -233,11 +233,11 @@ function create() {
     mainCamera = this.cameras.main;
     mainCamera.setBackgroundColor('#000000');
     
-    // Create a grid background to visualize the infinite world
+    // Create grid background first, before any other elements
     createGridBackground(this);
     
-    // Create graphics object for planets
-    planetGraphics = this.add.graphics();
+    // Initialize planetGraphics as an array, not as a graphics object
+    planetGraphics = [];
     
     // Create bullet graphics
     const bulletGraphics = this.add.graphics();
@@ -964,42 +964,52 @@ function updatePlayerInvulnerability(player, isInvulnerable) {
 
 // Create a grid background to help visualize the infinite world
 function createGridBackground(scene) {
-    const gridSize = 100;
-    const gridColor = 0x222222;
-    const gridAlpha = 0.3;
-    
     // Create a graphics object for the grid
     const gridGraphics = scene.add.graphics();
-    gridGraphics.lineStyle(1, gridColor, gridAlpha);
     
-    // Draw a large grid centered at 0,0
-    const gridExtent = 5000; // How far the grid extends in each direction
+    // Set the depth to be behind everything else
+    gridGraphics.setDepth(-20); // Even lower than planets
     
-    // Draw horizontal lines
-    for (let y = -gridExtent; y <= gridExtent; y += gridSize) {
-        gridGraphics.moveTo(-gridExtent, y);
-        gridGraphics.lineTo(gridExtent, y);
-    }
+    // Draw the grid
+    gridGraphics.lineStyle(1, 0x333333, 0.8);
+    
+    // Calculate grid size based on world size
+    const gridSize = 100;
+    const worldSize = WORLD ? WORLD.size : 4000;
+    const halfWorld = worldSize / 2;
     
     // Draw vertical lines
-    for (let x = -gridExtent; x <= gridExtent; x += gridSize) {
-        gridGraphics.moveTo(x, -gridExtent);
-        gridGraphics.lineTo(x, gridExtent);
+    for (let x = -halfWorld; x <= halfWorld; x += gridSize) {
+        gridGraphics.beginPath();
+        gridGraphics.moveTo(x, -halfWorld);
+        gridGraphics.lineTo(x, halfWorld);
+        gridGraphics.strokePath();
+    }
+    
+    // Draw horizontal lines
+    for (let y = -halfWorld; y <= halfWorld; y += gridSize) {
+        gridGraphics.beginPath();
+        gridGraphics.moveTo(-halfWorld, y);
+        gridGraphics.lineTo(halfWorld, y);
+        gridGraphics.strokePath();
     }
     
     // Draw coordinate axes with different color
-    gridGraphics.lineStyle(2, 0x444444, 0.8);
+    gridGraphics.lineStyle(2, 0x666666, 1);
     
     // X-axis
-    gridGraphics.moveTo(-gridExtent, 0);
-    gridGraphics.lineTo(gridExtent, 0);
+    gridGraphics.beginPath();
+    gridGraphics.moveTo(-halfWorld, 0);
+    gridGraphics.lineTo(halfWorld, 0);
+    gridGraphics.strokePath();
     
     // Y-axis
-    gridGraphics.moveTo(0, -gridExtent);
-    gridGraphics.lineTo(0, gridExtent);
-    
-    // Draw the grid
+    gridGraphics.beginPath();
+    gridGraphics.moveTo(0, -halfWorld);
+    gridGraphics.lineTo(0, halfWorld);
     gridGraphics.strokePath();
+    
+    return gridGraphics;
 }
 
 // Update game state
@@ -1271,152 +1281,116 @@ function createPlayerTriangle(scene, x, y, color, angle) {
     return ship;
 }
 
-// Render planets
+// Completely revise the planet rendering function to be more robust
+function createPlanetGraphics(scene, planet) {
+    // Create a container for the planet
+    const container = scene.add.container(0, 0);
+    container.setDepth(-10); // Set a negative depth to ensure it's behind other game elements
+    
+    // Create a graphics object for the planet base
+    const planetBase = scene.add.graphics();
+    
+    // Draw the planet with a white border
+    planetBase.fillStyle(planet.color, 1);
+    planetBase.lineStyle(2, 0xffffff, 1); // White border
+    planetBase.beginPath();
+    planetBase.arc(0, 0, planet.radius, 0, Math.PI * 2, false);
+    planetBase.closePath();
+    planetBase.fillPath();
+    planetBase.strokePath();
+    
+    // Add the planet base to the container
+    container.add(planetBase);
+    
+    // If the planet has craters, create them as separate graphics objects with ERASE blend mode
+    if (planet.craters && planet.craters.length > 0) {
+        // Create a single graphics object for all craters
+        const cratersGraphics = scene.add.graphics();
+        
+        // Set blend mode to ERASE to cut out from the planet
+        cratersGraphics.setBlendMode(Phaser.BlendModes.ERASE);
+        
+        // Draw each crater
+        planet.craters.forEach(crater => {
+            // Calculate crater position relative to planet center
+            const craterX = crater.x - planet.x;
+            const craterY = crater.y - planet.y;
+            
+            // Draw the crater as a solid black circle
+            cratersGraphics.fillStyle(0x000000, 1);
+            cratersGraphics.beginPath();
+            cratersGraphics.arc(craterX, craterY, crater.radius, 0, Math.PI * 2, false);
+            cratersGraphics.closePath();
+            cratersGraphics.fillPath();
+        });
+        
+        // Add the craters graphics to the container
+        container.add(cratersGraphics);
+    }
+    
+    // Add owner name text
+    if (planet.ownerId) {
+        // Find the player who owns this planet
+        let ownerName = "Unknown";
+        
+        // Check if it's the local player's planet
+        if (myPlayer && planet.ownerId === socket.id) {
+            ownerName = playerName || "You";
+        } 
+        // Check if it's another player's planet
+        else if (otherPlayers[planet.ownerId]) {
+            ownerName = otherPlayers[planet.ownerId].name || planet.ownerId.substring(0, 4);
+        }
+        
+        // Create text for the owner name
+        const nameText = scene.add.text(0, planet.radius + 15, ownerName, {
+            fontSize: '16px',
+            fontFamily: 'Arial',
+            color: '#FFFFFF',
+            stroke: '#000000',
+            strokeThickness: 2,
+            align: 'center'
+        });
+        nameText.setOrigin(0.5, 0);
+        
+        // Add the name text to the container
+        container.add(nameText);
+    }
+    
+    return container;
+}
+
+// Improve the renderPlanets function with better error handling
 function renderPlanets() {
-    if (!planetGraphics || !scene) return;
-    
-    // Clear previous planet graphics
-    planetGraphics.clear();
-    
-    // Render each planet
-    Object.values(planets).forEach(planet => {
-        if (!planet || typeof planet.x !== 'number' || typeof planet.y !== 'number') {
-            console.warn('Invalid planet data:', planet);
-            return;
-        }
-        
-        // Get planet color (default to gray if not specified)
-        const color = planet.color || 0x888888;
-        const radius = planet.radius || 100;
-        
-        // Draw planet base
-        planetGraphics.fillStyle(color, 0.7);
-        planetGraphics.lineStyle(2, 0xffffff, 0.8);
-        
-        // Draw complete circle first as base
-        planetGraphics.fillCircle(planet.x, planet.y, radius);
-        planetGraphics.strokeCircle(planet.x, planet.y, radius);
-        
-        // Draw ownership indicator (pulsing glow for owned planets)
-        const isOwnedByMe = planet.ownerId === socket.id;
-        const isOriginalPlanet = planet.id === planet.ownerId;
-        
-        // If this is a claimed planet (not original owner), add a crown or flag
-        if (!isOriginalPlanet) {
-            // Draw a flag or crown on top of the planet
-            const flagHeight = radius * 0.4;
-            const flagX = planet.x;
-            const flagY = planet.y - radius - flagHeight/2;
-            
-            // Draw flag pole
-            planetGraphics.lineStyle(3, 0xFFFFFF, 0.9);
-            planetGraphics.beginPath();
-            planetGraphics.moveTo(flagX, planet.y - radius);
-            planetGraphics.lineTo(flagX, flagY - flagHeight/2);
-            planetGraphics.strokePath();
-            
-            // Draw flag
-            planetGraphics.fillStyle(color, 1);
-            planetGraphics.fillTriangle(
-                flagX, flagY - flagHeight/2,
-                flagX + flagHeight * 0.7, flagY,
-                flagX, flagY + flagHeight/2
-            );
-        }
-        
-        // Add pulsing effect for planets owned by the current player
-        if (isOwnedByMe) {
-            // Calculate pulse based on time
-            const time = scene.time.now / 1000;
-            const pulseSize = Math.sin(time * 3) * 5 + 10; // Pulsing between 5 and 15
-            
-            // Draw pulsing ring
-            planetGraphics.lineStyle(2, color, 0.3);
-            planetGraphics.strokeCircle(planet.x, planet.y, radius + pulseSize);
-        }
-        
-        // Draw debug visualizations if debug mode is enabled
-        if (DEBUG_MODE) {
-            // Draw a faint "influence zone" around the planet to visualize minimum distance
-            planetGraphics.lineStyle(1, 0xffffff, 0.1);
-            planetGraphics.strokeCircle(planet.x, planet.y, radius + 200); // Visualize minimum distance
-            
-            // Draw the gravity field radius
-            planetGraphics.lineStyle(1, 0x00ffff, 0.05);
-            planetGraphics.strokeCircle(planet.x, planet.y, radius * 25); // Visualize gravity field
-            
-            // Draw a stronger inner gravity field for bullets
-            planetGraphics.lineStyle(1, 0xffff00, 0.05);
-            planetGraphics.strokeCircle(planet.x, planet.y, radius * 15); // Visualize bullet gravity field
-        }
-        
-        // Draw craters (circular cutouts)
-        if (planet.craters && planet.craters.length > 0) {
-            planetGraphics.fillStyle(0x000000, 1);
-            
-            planet.craters.forEach(crater => {
-                // Draw crater as a black circle
-                planetGraphics.fillCircle(crater.x, crater.y, crater.radius);
-                
-                // Add a subtle inner highlight to give depth
-                const innerHighlightRadius = crater.radius * 0.7;
-                const highlightColor = 0x333333; // Dark gray for subtle depth
-                
-                // Draw inner highlight
-                planetGraphics.fillStyle(highlightColor, 0.3);
-                planetGraphics.fillCircle(crater.x, crater.y, innerHighlightRadius);
+    // Clear existing planet graphics with proper error handling
+    if (planetGraphics) {
+        if (Array.isArray(planetGraphics)) {
+            planetGraphics.forEach(g => {
+                if (g) {
+                    g.destroy();
+                }
             });
-        }
-        
-        // Draw planet owner name
-        let ownerName = "Unclaimed";
-        let nameColor = '#FFFFFF';
-        
-        if (planet.ownerId === socket.id) {
-            ownerName = playerName + "'s Planet";
-            nameColor = '#FFFF00'; // Yellow for player's own planets
-        } else if (otherPlayers[planet.ownerId]) {
-            const otherPlayerName = playerNameTexts[planet.ownerId] ? 
-                playerNameTexts[planet.ownerId].text : "Player";
-            ownerName = otherPlayerName + "'s Planet";
-            
-            // If this is a claimed planet (not original), show it differently
-            if (planet.id !== planet.ownerId) {
-                ownerName = "Claimed by " + otherPlayerName;
-            }
-        } else if (planet.ownerId !== planet.id) {
-            // Planet claimed by a player who is no longer connected
-            ownerName = "Abandoned Planet";
-            nameColor = '#AAAAAA';
-        }
-        
-        // Check if text already exists for this planet
-        const textKey = `planet_text_${planet.id}`;
-        let planetText = scene.children.getByName(textKey);
-        
-        if (!planetText) {
-            // Create new text
-            planetText = scene.add.text(planet.x, planet.y - radius - 20, ownerName, {
-                fontSize: '16px',
-                fill: nameColor,
-                stroke: '#000000',
-                strokeThickness: 3,
-                fontStyle: 'bold'
-            });
-            planetText.setName(textKey);
-            planetText.setOrigin(0.5, 0.5);
         } else {
-            // Update existing text
-            planetText.setText(ownerName);
-            planetText.setStyle({
-                fontSize: '16px',
-                fill: nameColor,
-                stroke: '#000000',
-                strokeThickness: 3,
-                fontStyle: 'bold'
-            });
-            planetText.x = planet.x;
-            planetText.y = planet.y - radius - 20;
+            console.warn('planetGraphics is not an array, resetting it');
+        }
+    }
+    
+    // Always reinitialize as an array
+    planetGraphics = [];
+    
+    // Create new planet graphics with error handling
+    Object.values(planets).forEach(planet => {
+        try {
+            if (!planet) {
+                return;
+            }
+            
+            const container = createPlanetGraphics(scene, planet);
+            container.x = planet.x;
+            container.y = planet.y;
+            planetGraphics.push(container);
+        } catch (error) {
+            console.error(`Error rendering planet ${planet?.id}:`, error);
         }
     });
 }
@@ -1470,10 +1444,4 @@ function applyInput(player, input) {
     
     // Apply gravity from planets
     applyPlanetaryGravity(player, 1);
-}
-
-// Create planet graphics
-function createPlanetGraphics(scene, planet) {
-    // Planet will be rendered in the update function
-    console.log(`Creating planet graphics for planet ${planet.id} at (${planet.x}, ${planet.y})`);
 } 

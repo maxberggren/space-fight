@@ -957,8 +957,8 @@ function damagePlanet(planet, impactAngle) {
     // Instead of using pie slices, we'll create circular cutouts at the impact point
     
     // Calculate impact position on the planet surface
-    const impactX = planet.x + Math.cos(impactAngle) * planet.radius;
-    const impactY = planet.y + Math.sin(impactAngle) * planet.radius;
+    const impactX = planet.x - Math.cos(impactAngle) * planet.radius;
+    const impactY = planet.y - Math.sin(impactAngle) * planet.radius;
     
     // Create a new crater at the impact point
     const craterRadius = 15 + Math.random() * 10; // Random crater size between 15-25 units

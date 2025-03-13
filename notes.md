@@ -1,0 +1,1 @@
+[ ] - Göra så att det går att skjuta en planet långsamt åt ett annat håll. Men väldigt långsamt så man kan samla ihop sina planeter som lag.
