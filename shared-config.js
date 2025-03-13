@@ -15,7 +15,7 @@ const PHYSICS = {
 
 // World configuration
 const WORLD = {
-    size: 4000,        // World size (width and height)
+    size: 8000,        // World size (width and height)
     maxPlayerDistance: 1200 // Maximum distance between players
 };
 
