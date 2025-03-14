@@ -233,8 +233,8 @@ function create() {
     mainCamera = this.cameras.main;
     mainCamera.setBackgroundColor('#000000');
     
-    // Create grid background first, before any other elements
-    createGridBackground(this);
+    // Create starfield background with parallax effect
+    createStarfieldBackground(this);
     
     // Initialize planetGraphics as an array, not as a graphics object
     planetGraphics = [];
@@ -962,54 +962,65 @@ function updatePlayerInvulnerability(player, isInvulnerable) {
     }
 }
 
-// Create a grid background to help visualize the infinite world
-function createGridBackground(scene) {
-    // Create a graphics object for the grid
-    const gridGraphics = scene.add.graphics();
+// Replace the grid background function with a starfield function
+function createStarfieldBackground(scene) {
+    // Create multiple layers of stars for parallax effect
+    const layers = 3;
+    const starsPerLayer = 200;
+    const starfieldLayers = [];
     
-    // Set the depth to be behind everything else
-    gridGraphics.setDepth(-20); // Even lower than planets
-    
-    // Draw the grid
-    gridGraphics.lineStyle(1, 0x333333, 0.8);
-    
-    // Calculate grid size based on world size
-    const gridSize = 100;
-    const worldSize = WORLD ? WORLD.size : 4000;
-    const halfWorld = worldSize / 2;
-    
-    // Draw vertical lines
-    for (let x = -halfWorld; x <= halfWorld; x += gridSize) {
-        gridGraphics.beginPath();
-        gridGraphics.moveTo(x, -halfWorld);
-        gridGraphics.lineTo(x, halfWorld);
-        gridGraphics.strokePath();
+    // Create star layers with different depths and speeds
+    for (let layer = 0; layer < layers; layer++) {
+        // Create a container for this layer of stars
+        const starContainer = scene.add.container(0, 0);
+        
+        // Set depth to ensure stars are behind everything else
+        starContainer.setDepth(-100 + layer);
+        
+        // Store the parallax factor - deeper layers move slower
+        const parallaxFactor = 0.05 + (layer * 0.15);
+        
+        // Generate random stars for this layer
+        for (let i = 0; i < starsPerLayer; i++) {
+            // Calculate random position covering an area larger than the world bounds
+            // to ensure stars are visible when camera moves
+            const worldSize = WORLD ? WORLD.size : 10000;
+            const padding = worldSize * 0.3;
+            const x = Phaser.Math.Between(-worldSize/2 - padding, worldSize/2 + padding);
+            const y = Phaser.Math.Between(-worldSize/2 - padding, worldSize/2 + padding);
+            
+            // Vary star size and brightness based on layer
+            const size = 1 + layer * 0.5;
+            const alpha = 0.3 + (layer * 0.3);
+            
+            // Create star as a small circle
+            const star = scene.add.circle(x, y, size, 0xffffff, alpha);
+            
+            // Add a subtle twinkle effect to some stars
+            if (Math.random() > 0.7) {
+                scene.tweens.add({
+                    targets: star,
+                    alpha: alpha - 0.2,
+                    duration: 1000 + Math.random() * 3000,
+                    yoyo: true,
+                    repeat: -1,
+                    ease: 'Sine.easeInOut'
+                });
+            }
+            
+            // Add star to the container
+            starContainer.add(star);
+        }
+        
+        // Store the layer with its parallax factor
+        starfieldLayers.push({
+            container: starContainer,
+            parallaxFactor: parallaxFactor
+        });
     }
     
-    // Draw horizontal lines
-    for (let y = -halfWorld; y <= halfWorld; y += gridSize) {
-        gridGraphics.beginPath();
-        gridGraphics.moveTo(-halfWorld, y);
-        gridGraphics.lineTo(halfWorld, y);
-        gridGraphics.strokePath();
-    }
-    
-    // Draw coordinate axes with different color
-    gridGraphics.lineStyle(2, 0x666666, 1);
-    
-    // X-axis
-    gridGraphics.beginPath();
-    gridGraphics.moveTo(-halfWorld, 0);
-    gridGraphics.lineTo(halfWorld, 0);
-    gridGraphics.strokePath();
-    
-    // Y-axis
-    gridGraphics.beginPath();
-    gridGraphics.moveTo(0, -halfWorld);
-    gridGraphics.lineTo(0, halfWorld);
-    gridGraphics.strokePath();
-    
-    return gridGraphics;
+    // Store the starfield layers in the scene for access in update
+    scene.starfieldLayers = starfieldLayers;
 }
 
 // Update game state
@@ -1112,6 +1123,15 @@ function update(time, delta) {
 
     // Render planets
     renderPlanets();
+
+    // Update starfield parallax effect
+    if (scene.starfieldLayers && mainCamera) {
+        scene.starfieldLayers.forEach(layer => {
+            // Move stars based on camera position and parallax factor
+            layer.container.x = -mainCamera.scrollX * layer.parallaxFactor;
+            layer.container.y = -mainCamera.scrollY * layer.parallaxFactor;
+        });
+    }
 }
 
 function updateMultiplayerCamera() {
