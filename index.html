@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Planet Defender</title>
     <script src="https://cdn.jsdelivr.net/npm/phaser@3.55.2/dist/phaser.min.js"></script>
     <script src="/socket.io/socket.io.js"></script>
@@ -229,34 +232,52 @@
         </div>
     </div>
     
-    <script src="shared-config.js"></script>
-    <script src="game.js"></script>
+    <!-- Load version.js first for cache busting -->
+    <script src="version.js"></script>
     
+    <!-- Add dynamic version parameter to script sources -->
     <script>
-        // Use the PLAYER_COLORS array from game.js instead of redeclaring it
+        // Function to add version parameter to script URLs
+        function loadScript(url) {
+            const script = document.createElement('script');
+            script.src = url + '?v=' + (typeof VERSION !== 'undefined' ? VERSION : Date.now());
+            document.body.appendChild(script);
+            return script;
+        }
         
-        // Create initial color options
-        const colorOptionsContainer = document.getElementById('color-options');
-        let defaultColor = 0x0000ff; // Blue
+        // Load scripts with cache busting
+        const configScript = loadScript('shared-config.js');
         
-        PLAYER_COLORS.forEach((color) => {
-            const colorOption = document.createElement('div');
-            colorOption.className = 'color-option';
-            colorOption.style.backgroundColor = '#' + color.value.toString(16).padStart(6, '0');
+        // Load game.js after shared-config.js is loaded
+        configScript.onload = function() {
+            const gameScript = loadScript('game.js');
             
-            // Add tooltip
-            const tooltip = document.createElement('div');
-            tooltip.className = 'color-tooltip';
-            tooltip.textContent = color.name;
-            colorOption.appendChild(tooltip);
-            
-            // Set selected state for default color
-            if (color.value === defaultColor) {
-                colorOption.classList.add('selected');
-            }
-            
-            colorOptionsContainer.appendChild(colorOption);
-        });
+            // Initialize color options after game.js is loaded
+            gameScript.onload = function() {
+                // Create initial color options
+                const colorOptionsContainer = document.getElementById('color-options');
+                let defaultColor = 0x0000ff; // Blue
+                
+                PLAYER_COLORS.forEach((color) => {
+                    const colorOption = document.createElement('div');
+                    colorOption.className = 'color-option';
+                    colorOption.style.backgroundColor = '#' + color.value.toString(16).padStart(6, '0');
+                    
+                    // Add tooltip
+                    const tooltip = document.createElement('div');
+                    tooltip.className = 'color-tooltip';
+                    tooltip.textContent = color.name;
+                    colorOption.appendChild(tooltip);
+                    
+                    // Set selected state for default color
+                    if (color.value === defaultColor) {
+                        colorOption.classList.add('selected');
+                    }
+                    
+                    colorOptionsContainer.appendChild(colorOption);
+                });
+            };
+        };
     </script>
 </body>
 </html> 

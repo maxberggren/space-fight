@@ -87,7 +87,15 @@ function safeSerialize(obj, replacer = null, space = null, seen = new WeakSet(),
 }
 
 // Serve static files
-app.use(express.static(path.join(__dirname, '/')));
+app.use(express.static(path.join(__dirname, '/'), {
+    etag: false,
+    maxAge: '5s', // Very short cache time (5 seconds)
+    setHeaders: function (res, path, stat) {
+        res.set('Cache-Control', 'no-cache, no-store, must-revalidate');
+        res.set('Pragma', 'no-cache');
+        res.set('Expires', '0');
+    }
+}));
 
 // Game state
 const gameState = {
