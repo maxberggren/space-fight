@@ -983,18 +983,6 @@ function createStarfieldBackground(scene) {
             // Create star as a small circle
             const star = scene.add.circle(x, y, size, 0xffffff, alpha);
             
-            // Add a subtle twinkle effect to some stars
-            if (Math.random() > 0.7) {
-                scene.tweens.add({
-                    targets: star,
-                    alpha: alpha - 0.2,
-                    duration: 1000 + Math.random() * 3000,
-                    yoyo: true,
-                    repeat: -1,
-                    ease: 'Sine.easeInOut'
-                });
-            }
-            
             // Add star to the container
             starContainer.add(star);
         }
