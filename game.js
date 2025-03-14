@@ -978,7 +978,7 @@ function createStarfieldBackground(scene) {
         starContainer.setDepth(-100 + layer);
         
         // Store the parallax factor - deeper layers move slower
-        const parallaxFactor = 0.05 + (layer * 0.15);
+        const parallaxFactor = 0.02 + (layer * 0.025);
         
         // Generate random stars for this layer
         for (let i = 0; i < starsPerLayer; i++) {
