@@ -39,22 +39,31 @@ window.addEventListener('resize', function() {
 
 // Game variables
 let socket;
-let myPlayer;
+let localPlayer;
 let otherPlayers = {};
-let bullets;
+let bullets = [];
+let planets = {};
 let cursors;
-let shootKey;
-let shootSound;
-let explosionSound;
-let respawnSound;
-let sequenceNumber = 0; // Add sequence number for input prediction
-let pendingInputs = []; // Store inputs that haven't been processed by server
-let playerName = "Player"; // Default player name
-let playerColor = 0x0000ff; // Default player color (blue)
-let playerNameTexts = {}; // Store text objects for player names
-let scene; // Store reference to the current scene
-let planets = {}; // Store planet objects
-let planetGraphics = []; // Graphics object for rendering planets
+let wasdKeys; // Added for WASD controls
+let shiftKey; // Added for shift key shooting
+let mobileControls; // Added for mobile controls
+let inputSequenceNumber = 0;
+let pendingInputs = [];
+let playerNameInput;
+let colorOptions;
+let selectedColor = 0x0000ff; // Default blue
+let playerName = "Player";
+let gameStarted = false;
+let camera;
+let cameraTarget = { x: 0, y: 0 };
+let cameraZoom = 1;
+let targetZoom = 1;
+let worldBounds;
+let playerNameTexts = {};
+let playerShields = {};
+let planetGraphics = {};
+let planetTexture;
+let starfieldLayers = [];
 
 // Available colors for player ships with friendly names
 const PLAYER_COLORS = [
@@ -72,7 +81,6 @@ const PLAYER_COLORS = [
 
 // Camera variables
 let mainCamera;
-let targetZoom = 0.3; // Default very zoomed-out level
 let currentZoom = 0.3;
 let zoomSpeed = 0.05; // Smooth transition speed
 let minZoom = 1.25; // Minimum zoom (most zoomed out)
@@ -100,14 +108,14 @@ function initializeUI() {
         colorOption.appendChild(tooltip);
         
         // Set selected state for current color
-        if (color.value === playerColor) {
+        if (color.value === selectedColor) {
             colorOption.classList.add('selected');
         }
         
         // Add click handler
         colorOption.addEventListener('click', () => {
             // Update selected color
-            playerColor = color.value;
+            selectedColor = color.value;
             
             // Update UI
             document.querySelectorAll('.color-option').forEach(el => {
@@ -136,6 +144,11 @@ function initializeUI() {
         playerName = nameInput.value.trim();
         updatePlayerInfo();
     });
+
+    // Add mobile controls if on a touch device
+    if (isTouchDevice()) {
+        createMobileControls();
+    }
 }
 
 // Preload game assets
@@ -270,7 +283,17 @@ function create() {
 
     // Set up input controls
     cursors = this.input.keyboard.createCursorKeys();
-    shootKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    
+    // Add WASD keys as alternative controls
+    wasdKeys = this.input.keyboard.addKeys({
+        up: Phaser.Input.Keyboard.KeyCodes.W,
+        down: Phaser.Input.Keyboard.KeyCodes.S,
+        left: Phaser.Input.Keyboard.KeyCodes.A,
+        right: Phaser.Input.Keyboard.KeyCodes.D
+    });
+    
+    // Add shift key for shooting
+    shiftKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SHIFT);
     
     // Create bullet group
     bullets = this.physics.add.group({
@@ -309,11 +332,11 @@ function setupSocketHandlers(scene) {
             const playerData = state.players[playerId];
             if (playerId === socket.id) {
                 // Create our player
-                myPlayer = createPlayerTriangle(scene, playerData.x, playerData.y, 
-                    playerData.color || playerColor, playerData.angle);
-                myPlayer.id = playerId;
+                localPlayer = createPlayerTriangle(scene, playerData.x, playerData.y, 
+                    playerData.color || selectedColor, playerData.angle);
+                localPlayer.id = playerId;
                 // Set initial invulnerability state
-                updatePlayerInvulnerability(myPlayer, playerData.invulnerable);
+                updatePlayerInvulnerability(localPlayer, playerData.invulnerable);
                 
                 // Update our name and color if server has them
                 if (playerData.name) {
@@ -321,7 +344,7 @@ function setupSocketHandlers(scene) {
                     document.getElementById('player-name').value = playerName;
                 }
                 if (playerData.color) {
-                    playerColor = playerData.color;
+                    selectedColor = playerData.color;
                     // Update color selection in UI
                     document.querySelectorAll('.color-option').forEach(el => {
                         const colorHex = '#' + playerData.color.toString(16).padStart(6, '0');
@@ -422,9 +445,9 @@ function setupSocketHandlers(scene) {
         Object.keys(state.players).forEach(playerId => {
             const playerData = state.players[playerId];
             
-            if (playerId === socket.id && myPlayer) {
+            if (playerId === socket.id && localPlayer) {
                 // Update invulnerability state with visual effect
-                updatePlayerInvulnerability(myPlayer, playerData.invulnerable);
+                updatePlayerInvulnerability(localPlayer, playerData.invulnerable);
                 
                 // Server reconciliation
                 if (playerData.lastProcessedInput) {
@@ -434,28 +457,28 @@ function setupSocketHandlers(scene) {
                     );
                     
                     // Reset position to server position
-                    myPlayer.x = playerData.x;
-                    myPlayer.y = playerData.y;
-                    myPlayer.body.velocity.x = 0;
-                    myPlayer.body.velocity.y = 0;
+                    localPlayer.x = playerData.x;
+                    localPlayer.y = playerData.y;
+                    localPlayer.body.velocity.x = 0;
+                    localPlayer.body.velocity.y = 0;
                     
                     // Re-apply all pending inputs
                     pendingInputs.forEach(input => {
-                        applyInput(myPlayer, input);
+                        applyInput(localPlayer, input);
                     });
                 } else {
                     // Smooth position correction if needed (for older server versions)
-                    const distance = Phaser.Math.Distance.Between(myPlayer.x, myPlayer.y, playerData.x, playerData.y);
+                    const distance = Phaser.Math.Distance.Between(localPlayer.x, localPlayer.y, playerData.x, playerData.y);
                     if (distance > 100) {
-                        myPlayer.x = playerData.x;
-                        myPlayer.y = playerData.y;
+                        localPlayer.x = playerData.x;
+                        localPlayer.y = playerData.y;
                     }
                 }
                 
                 // Update player name position
                 if (playerNameTexts[playerId]) {
-                    playerNameTexts[playerId].x = myPlayer.x;
-                    playerNameTexts[playerId].y = myPlayer.y + 30;
+                    playerNameTexts[playerId].x = localPlayer.x;
+                    playerNameTexts[playerId].y = localPlayer.y + 30;
                 }
             } else if (otherPlayers[playerId]) {
                 // Update other players with interpolation for smoother movement
@@ -722,11 +745,11 @@ function setupSocketHandlers(scene) {
             if (shootSound) shootSound.play({ volume: 0.3, detune: -300 });
             
             // Add a temporary shield effect to visualize invulnerability
-            if (myPlayer) {
+            if (localPlayer) {
                 // Flash the player briefly
-                myPlayer.setTint(0x00ffff);
+                localPlayer.setTint(0x00ffff);
                 scene.time.delayedCall(500, () => {
-                    myPlayer.clearTint();
+                    localPlayer.clearTint();
                 });
                 
                 // Show a temporary message
@@ -886,7 +909,7 @@ function createPlayerNameText(scene, playerId, name) {
     playerNameTexts[playerId] = nameText;
     
     // Set initial position
-    const player = playerId === socket.id ? myPlayer : otherPlayers[playerId];
+    const player = playerId === socket.id ? localPlayer : otherPlayers[playerId];
     if (player) {
         nameText.x = player.x;
         nameText.y = player.y + 30; // Position below player
@@ -900,34 +923,34 @@ function updatePlayerInfo() {
     // Send updated player info to server
     socket.emit('updatePlayerInfo', {
         name: playerName,
-        color: playerColor
+        color: selectedColor
     });
     
     // Update local player if it exists
-    if (myPlayer && scene) {
+    if (localPlayer && scene) {
         // Update name text
         if (playerNameTexts[socket.id]) {
             playerNameTexts[socket.id].setText(playerName);
         }
         
         // Update player color - recreate the triangle with new color
-        const x = myPlayer.x;
-        const y = myPlayer.y;
-        const angle = myPlayer.angle;
+        const x = localPlayer.x;
+        const y = localPlayer.y;
+        const angle = localPlayer.angle;
         
         // Store any custom properties
-        const isInvulnerable = myPlayer.getData('isInvulnerable');
-        const shield = myPlayer.shield;
+        const isInvulnerable = localPlayer.getData('isInvulnerable');
+        const shield = localPlayer.shield;
         
         // Remove old player sprite
-        myPlayer.destroy();
+        localPlayer.destroy();
         
         // Create new player sprite with updated color
-        myPlayer = createPlayerTriangle(scene, x, y, playerColor, angle);
-        myPlayer.id = socket.id;
+        localPlayer = createPlayerTriangle(scene, x, y, selectedColor, angle);
+        localPlayer.id = socket.id;
         
         // Restore custom properties
-        updatePlayerInvulnerability(myPlayer, isInvulnerable);
+        updatePlayerInvulnerability(localPlayer, isInvulnerable);
     }
 }
 
@@ -1025,52 +1048,49 @@ function createStarfieldBackground(scene) {
 
 // Update game state
 function update(time, delta) {
-    if (!myPlayer || !socket || !PHYSICS) return;
+    if (!localPlayer || !socket || !PHYSICS) return;
 
     // Handle player input
     const input = {
         isThrusting: false,
-        angle: myPlayer.angle,
+        angle: localPlayer.angle,
         isShooting: false,
-        sequenceNumber: sequenceNumber++ // Add sequence number to track inputs
+        sequenceNumber: inputSequenceNumber++ // Add sequence number to track inputs
     };
     
-    if (cursors.up.isDown) {
+    if (cursors.up.isDown || wasdKeys.up.isDown) {
         input.isThrusting = true;
-        myPlayer.isThrusting = true;
+        localPlayer.isThrusting = true;
     } else {
-        myPlayer.isThrusting = false;
+        localPlayer.isThrusting = false;
     }
 
-    if (cursors.left.isDown) {
-        myPlayer.angle -= 4;
-        input.angle = myPlayer.angle;
-    } else if (cursors.right.isDown) {
-        myPlayer.angle += 4;
-        input.angle = myPlayer.angle;
+    if (cursors.left.isDown || wasdKeys.left.isDown) {
+        input.angle = localPlayer.angle -= 4;
+    } else if (cursors.right.isDown || wasdKeys.right.isDown) {
+        input.angle = localPlayer.angle += 4;
     }
 
-    // Check for shooting with spacebar
-    if (Phaser.Input.Keyboard.JustDown(shootKey)) {
+    if (cursors.space.isDown || shiftKey.isDown) {
         input.isShooting = true;
         
         // Visual feedback for shooting attempt
-        if (!myPlayer.getData('isInvulnerable')) {
+        if (!localPlayer.getData('isInvulnerable')) {
             const now = time;
-            const lastShot = myPlayer.getData('lastShot') || 0;
+            const lastShot = localPlayer.getData('lastShot') || 0;
             const cooldown = GAME?.shootCooldown || 500;
             
             if (now - lastShot > cooldown) {
-                myPlayer.setData('lastShot', now);
+                localPlayer.setData('lastShot', now);
                 // Flash the player briefly to indicate shooting attempt
-                myPlayer.setTint(0xffff00);
-                setTimeout(() => myPlayer.clearTint(), 50);
+                localPlayer.setTint(0xffff00);
+                setTimeout(() => localPlayer.clearTint(), 50);
             }
         }
     }
 
     // Apply input locally for immediate feedback
-    applyInput(myPlayer, input);
+    applyInput(localPlayer, input);
     
     // Save this input for later reconciliation
     pendingInputs.push(input);
@@ -1082,15 +1102,15 @@ function update(time, delta) {
     updateMultiplayerCamera();
 
     // Update shield positions for all players
-    if (myPlayer.shield) {
-        myPlayer.shield.x = myPlayer.x;
-        myPlayer.shield.y = myPlayer.y;
+    if (localPlayer.shield) {
+        localPlayer.shield.x = localPlayer.x;
+        localPlayer.shield.y = localPlayer.y;
     }
     
     // Update player name positions
     if (playerNameTexts[socket.id]) {
-        playerNameTexts[socket.id].x = myPlayer.x;
-        playerNameTexts[socket.id].y = myPlayer.y + 30;
+        playerNameTexts[socket.id].x = localPlayer.x;
+        playerNameTexts[socket.id].y = localPlayer.y + 30;
     }
     
     Object.values(otherPlayers).forEach(player => {
@@ -1135,11 +1155,11 @@ function update(time, delta) {
 }
 
 function updateMultiplayerCamera() {
-    if (!myPlayer || !mainCamera) return;
+    if (!localPlayer || !mainCamera) return;
 
     // Default to focusing on the player with a zoomed-out view
-    let targetX = myPlayer.x;
-    let targetY = myPlayer.y;
+    let targetX = localPlayer.x;
+    let targetY = localPlayer.y;
     let newTargetZoom = minZoom; // Start with the most zoomed out view
     
     // Find nearby players (within a certain distance)
@@ -1147,7 +1167,7 @@ function updateMultiplayerCamera() {
     const detectionRadius = 600; // How far to detect other players for zoom-in
     
     Object.values(otherPlayers).forEach(player => {
-        const distance = Phaser.Math.Distance.Between(myPlayer.x, myPlayer.y, player.x, player.y);
+        const distance = Phaser.Math.Distance.Between(localPlayer.x, localPlayer.y, player.x, player.y);
         if (distance < detectionRadius) {
             nearbyPlayers.push({
                 player: player,
@@ -1162,10 +1182,10 @@ function updateMultiplayerCamera() {
         nearbyPlayers.sort((a, b) => a.distance - b.distance);
         
         // Calculate the bounding box of the player and nearby players
-        let minX = myPlayer.x;
-        let minY = myPlayer.y;
-        let maxX = myPlayer.x;
-        let maxY = myPlayer.y;
+        let minX = localPlayer.x;
+        let minY = localPlayer.y;
+        let maxX = localPlayer.x;
+        let maxY = localPlayer.y;
 
         // Only include the closest player for camera calculations
         const closestPlayer = nearbyPlayers[0].player;
@@ -1179,8 +1199,8 @@ function updateMultiplayerCamera() {
         const centerY = (minY + maxY) / 2;
         
         // Bias the camera position toward the player
-        targetX = myPlayer.x * 0.7 + centerX * 0.3;
-        targetY = myPlayer.y * 0.7 + centerY * 0.3;
+        targetX = localPlayer.x * 0.7 + centerX * 0.3;
+        targetY = localPlayer.y * 0.7 + centerY * 0.3;
         
         // Calculate required zoom level based on distance between players
         const width = (maxX - minX) + cameraMargin * 2;
@@ -1354,7 +1374,7 @@ function createPlanetGraphics(scene, planet) {
         let ownerName = "Unknown";
         
         // Check if it's the local player's planet
-        if (myPlayer && planet.ownerId === socket.id) {
+        if (localPlayer && planet.ownerId === socket.id) {
             ownerName = playerName || "You";
         } 
         // Check if it's another player's planet
@@ -1464,4 +1484,131 @@ function applyInput(player, input) {
     
     // Apply gravity from planets
     applyPlanetaryGravity(player, 1);
+}
+
+// Helper function to detect touch devices
+function isTouchDevice() {
+    return (('ontouchstart' in window) ||
+        (navigator.maxTouchPoints > 0) ||
+        (navigator.msMaxTouchPoints > 0));
+}
+
+// Create mobile controls
+function createMobileControls() {
+    // Create a container for mobile controls
+    const mobileControlsContainer = document.createElement('div');
+    mobileControlsContainer.id = 'mobile-controls';
+    document.body.appendChild(mobileControlsContainer);
+    
+    // Create left control pad (for steering)
+    const leftPad = document.createElement('div');
+    leftPad.id = 'left-control-pad';
+    mobileControlsContainer.appendChild(leftPad);
+    
+    // Create left button
+    const leftButton = document.createElement('button');
+    leftButton.id = 'left-button';
+    leftButton.innerHTML = '◀';
+    leftPad.appendChild(leftButton);
+    
+    // Create right button
+    const rightButton = document.createElement('button');
+    rightButton.id = 'right-button';
+    rightButton.innerHTML = '▶';
+    leftPad.appendChild(rightButton);
+    
+    // Create right control pad (for thrust and shoot)
+    const rightPad = document.createElement('div');
+    rightPad.id = 'right-control-pad';
+    mobileControlsContainer.appendChild(rightPad);
+    
+    // Create thrust button
+    const thrustButton = document.createElement('button');
+    thrustButton.id = 'thrust-button';
+    thrustButton.innerHTML = '▲';
+    rightPad.appendChild(thrustButton);
+    
+    // Create shoot button
+    const shootButton = document.createElement('button');
+    shootButton.id = 'shoot-button';
+    shootButton.innerHTML = '🔥';
+    rightPad.appendChild(shootButton);
+    
+    // Initialize mobile controls object
+    mobileControls = {
+        left: { isDown: false },
+        right: { isDown: false },
+        thrust: { isDown: false },
+        shoot: { isDown: false }
+    };
+    
+    // Add event listeners for touch controls
+    
+    // Left button
+    leftButton.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        mobileControls.left.isDown = true;
+    });
+    
+    leftButton.addEventListener('touchend', function(e) {
+        e.preventDefault();
+        mobileControls.left.isDown = false;
+    });
+    
+    // Right button
+    rightButton.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        mobileControls.right.isDown = true;
+    });
+    
+    rightButton.addEventListener('touchend', function(e) {
+        e.preventDefault();
+        mobileControls.right.isDown = false;
+    });
+    
+    // Thrust button
+    thrustButton.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        mobileControls.thrust.isDown = true;
+    });
+    
+    thrustButton.addEventListener('touchend', function(e) {
+        e.preventDefault();
+        mobileControls.thrust.isDown = false;
+    });
+    
+    // Shoot button
+    shootButton.addEventListener('touchstart', function(e) {
+        e.preventDefault();
+        mobileControls.shoot.isDown = true;
+    });
+    
+    shootButton.addEventListener('touchend', function(e) {
+        e.preventDefault();
+        mobileControls.shoot.isDown = false;
+    });
+    
+    // Add touchmove handlers to maintain button state when dragging
+    document.addEventListener('touchmove', function(e) {
+        // This prevents the buttons from getting "stuck" if the user
+        // drags their finger off the button
+        const touch = e.touches[0];
+        const element = document.elementFromPoint(touch.clientX, touch.clientY);
+        
+        // Reset all controls first
+        mobileControls.left.isDown = false;
+        mobileControls.right.isDown = false;
+        mobileControls.thrust.isDown = false;
+        mobileControls.shoot.isDown = false;
+        
+        // Set the appropriate control based on what element the touch is over
+        if (element) {
+            if (element.id === 'left-button') mobileControls.left.isDown = true;
+            if (element.id === 'right-button') mobileControls.right.isDown = true;
+            if (element.id === 'thrust-button') mobileControls.thrust.isDown = true;
+            if (element.id === 'shoot-button') mobileControls.shoot.isDown = true;
+        }
+    });
+    
+    console.log('Mobile controls initialized');
 } 
