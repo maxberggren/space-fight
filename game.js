@@ -158,7 +158,6 @@ function preload() {
     // Load sound effects
     this.load.audio('shoot', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/audio/SoundEffects/blaster.mp3');
     this.load.audio('explosion', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/audio/SoundEffects/explosion.mp3');
-    this.load.audio('respawn', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/audio/SoundEffects/alien_death1.wav');
     
     // Create a basic graphics texture for the planet
     const graphics = this.add.graphics();
@@ -276,7 +275,6 @@ function create() {
     // Load sound effects
     shootSound = this.sound.add('shoot');
     explosionSound = this.sound.add('explosion');
-    respawnSound = this.sound.add('respawn');
 
     // Create explosion animation
     this.anims.create({
