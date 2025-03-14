@@ -60,7 +60,6 @@ let cameraZoom = 1;
 let targetZoom = 1;
 let worldBounds;
 let playerNameTexts = {};
-let playerShields = {};
 let planetGraphics = {};
 let planetTexture;
 let starfieldLayers = [];
@@ -245,15 +244,6 @@ function create() {
     bulletGraphics.strokePath();
     bulletGraphics.generateTexture('bullet_yellow', 10, 10);
     
-    // Create shield graphics
-    bulletGraphics.clear();
-    bulletGraphics.lineStyle(2, 0x00ffff, 0.5);
-    bulletGraphics.beginPath();
-    bulletGraphics.arc(0, 0, 20, 0, Math.PI * 2);
-    bulletGraphics.closePath();
-    bulletGraphics.strokePath();
-    bulletGraphics.generateTexture('shield', 40, 40);
-    
     // Destroy the graphics object as we no longer need it
     bulletGraphics.destroy();
 
@@ -406,7 +396,6 @@ function setupSocketHandlers(scene) {
                 
                 // Store any custom properties
                 const isInvulnerable = otherPlayer.getData('isInvulnerable');
-                const shield = otherPlayer.shield;
                 
                 // Remove old player sprite
                 otherPlayer.destroy();
@@ -726,7 +715,7 @@ function setupSocketHandlers(scene) {
             // Play sound if available
             if (shootSound) shootSound.play({ volume: 0.3, detune: -300 });
             
-            // Add a temporary shield effect to visualize invulnerability
+            // Add visual effect to indicate invulnerability
             if (localPlayer) {
                 // Flash the player briefly
                 localPlayer.setTint(0x00ffff);
@@ -922,7 +911,6 @@ function updatePlayerInfo() {
         
         // Store any custom properties
         const isInvulnerable = localPlayer.getData('isInvulnerable');
-        const shield = localPlayer.shield;
         
         // Remove old player sprite
         localPlayer.destroy();
@@ -946,19 +934,13 @@ function updatePlayerInvulnerability(player, isInvulnerable) {
     
     // Visual feedback for invulnerability
     if (isInvulnerable) {
-        // Add shield effect if not already present
-        if (!player.shield) {
-            player.shield = player.scene.add.sprite(player.x, player.y, 'shield');
-            player.shield.setAlpha(0.7);
-            console.log(`Shield added to player ${player.id}`);
-        }
+        // Apply visual effect to the player ship itself instead of using a shield sprite
+        player.setAlpha(0.7); // Make the ship slightly transparent when invulnerable
+        player.setTint(0x00ffff); // Add a cyan tint to indicate invulnerability
     } else {
-        // Remove shield effect if present
-        if (player.shield) {
-            player.shield.destroy();
-            player.shield = null;
-            console.log(`Shield removed from player ${player.id}`);
-        }
+        // Restore normal appearance
+        player.setAlpha(1);
+        player.clearTint();
     }
     
     // Log state change
@@ -1104,12 +1086,6 @@ function update(time, delta) {
 
     // Update camera
     updateMultiplayerCamera();
-
-    // Update shield positions for all players
-    if (localPlayer.shield) {
-        localPlayer.shield.x = localPlayer.x;
-        localPlayer.shield.y = localPlayer.y;
-    }
     
     // Update player name positions
     if (playerNameTexts[socket.id]) {
@@ -1118,11 +1094,6 @@ function update(time, delta) {
     }
     
     Object.values(otherPlayers).forEach(player => {
-        if (player.shield) {
-            player.shield.x = player.x;
-            player.shield.y = player.y;
-        }
-        
         // Update name position for this player
         if (playerNameTexts[player.id]) {
             playerNameTexts[player.id].x = player.x;
