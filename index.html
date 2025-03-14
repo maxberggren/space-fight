@@ -233,19 +233,7 @@
     <script src="game.js"></script>
     
     <script>
-        // Initialize color options immediately to avoid waiting for Phaser
-        const PLAYER_COLORS = [
-            { value: 0x0000ff, name: 'Blue' },
-            { value: 0xff0000, name: 'Red' },
-            { value: 0x00ff00, name: 'Green' },
-            { value: 0xffff00, name: 'Yellow' },
-            { value: 0xff00ff, name: 'Magenta' },
-            { value: 0x00ffff, name: 'Cyan' },
-            { value: 0xff8800, name: 'Orange' },
-            { value: 0x8800ff, name: 'Purple' },
-            { value: 0xffffff, name: 'White' },
-            { value: 0x888888, name: 'Gray' }
-        ];
+        // Use the PLAYER_COLORS array from game.js instead of redeclaring it
         
         // Create initial color options
         const colorOptionsContainer = document.getElementById('color-options');
@@ -268,88 +256,6 @@
             }
             
             colorOptionsContainer.appendChild(colorOption);
-        });
-        
-        // Create planet texture programmatically if it doesn't exist
-        // This will run when the game starts and generate a planet texture
-        document.addEventListener('DOMContentLoaded', function() {
-            // Create a canvas to generate the planet texture
-            const canvas = document.createElement('canvas');
-            canvas.width = 256;
-            canvas.height = 256;
-            const ctx = canvas.getContext('2d');
-            
-            // Draw a circular planet with some texture
-            const centerX = canvas.width / 2;
-            const centerY = canvas.height / 2;
-            const radius = canvas.width / 2 - 10;
-            
-            // Create gradient background
-            const gradient = ctx.createRadialGradient(
-                centerX, centerY, radius * 0.8,
-                centerX, centerY, radius
-            );
-            gradient.addColorStop(0, '#888888');
-            gradient.addColorStop(1, '#444444');
-            
-            // Draw the main circle
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, radius, 0, Math.PI * 2);
-            ctx.fillStyle = gradient;
-            ctx.fill();
-            
-            // Add some craters
-            for (let i = 0; i < 15; i++) {
-                const craterX = centerX + (Math.random() * 2 - 1) * radius * 0.8;
-                const craterY = centerY + (Math.random() * 2 - 1) * radius * 0.8;
-                const craterRadius = 5 + Math.random() * 15;
-                
-                ctx.beginPath();
-                ctx.arc(craterX, craterY, craterRadius, 0, Math.PI * 2);
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
-                ctx.fill();
-            }
-            
-            // Add a subtle highlight
-            ctx.beginPath();
-            ctx.arc(centerX - radius * 0.3, centerY - radius * 0.3, radius * 0.5, 0, Math.PI * 2);
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
-            ctx.fill();
-            
-            // Convert to data URL
-            const dataURL = canvas.toDataURL();
-            
-            // Create an image element with this data URL
-            const img = new Image();
-            img.src = dataURL;
-            
-            // When the image is loaded, save it to the assets directory
-            img.onload = function() {
-                // Create a link to download the image
-                const link = document.createElement('a');
-                link.href = dataURL;
-                link.download = 'planet.png';
-                
-                // Check if the assets/planet.png already exists
-                fetch('assets/planet.png')
-                    .then(response => {
-                        if (!response.ok) {
-                            // File doesn't exist, create assets directory if needed
-                            console.log('Planet texture not found, creating one...');
-                            
-                            // Note: This won't actually save the file on the server
-                            // It will just trigger a download in the browser
-                            // The server needs to handle file uploads or have the file pre-created
-                            link.click();
-                            
-                            console.log('Please save the downloaded planet.png file to your assets directory');
-                        }
-                    })
-                    .catch(() => {
-                        // Error fetching, assume file doesn't exist
-                        link.click();
-                    });
-            };
         });
     </script>
 </body>
