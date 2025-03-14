@@ -1058,6 +1058,7 @@ function update(time, delta) {
         sequenceNumber: inputSequenceNumber++ // Add sequence number to track inputs
     };
     
+    // Check keyboard input (arrows and WASD)
     if (cursors.up.isDown || wasdKeys.up.isDown) {
         input.isThrusting = true;
         localPlayer.isThrusting = true;
@@ -1073,19 +1074,40 @@ function update(time, delta) {
 
     if (cursors.space.isDown || shiftKey.isDown) {
         input.isShooting = true;
+    }
+    
+    // Check mobile controls if they exist
+    if (mobileControls) {
+        // Handle thrust
+        if (mobileControls.thrust.isDown) {
+            input.isThrusting = true;
+            localPlayer.isThrusting = true;
+        }
         
-        // Visual feedback for shooting attempt
-        if (!localPlayer.getData('isInvulnerable')) {
-            const now = time;
-            const lastShot = localPlayer.getData('lastShot') || 0;
-            const cooldown = GAME?.shootCooldown || 500;
-            
-            if (now - lastShot > cooldown) {
-                localPlayer.setData('lastShot', now);
-                // Flash the player briefly to indicate shooting attempt
-                localPlayer.setTint(0xffff00);
-                setTimeout(() => localPlayer.clearTint(), 50);
-            }
+        // Handle rotation
+        if (mobileControls.left.isDown) {
+            input.angle = localPlayer.angle -= 4;
+        } else if (mobileControls.right.isDown) {
+            input.angle = localPlayer.angle += 4;
+        }
+        
+        // Handle shooting
+        if (mobileControls.shoot.isDown) {
+            input.isShooting = true;
+        }
+    }
+    
+    // Visual feedback for shooting attempt
+    if (input.isShooting && !localPlayer.getData('isInvulnerable')) {
+        const now = time;
+        const lastShot = localPlayer.getData('lastShot') || 0;
+        const cooldown = GAME?.shootCooldown || 500;
+        
+        if (now - lastShot > cooldown) {
+            localPlayer.setData('lastShot', now);
+            // Flash the player briefly to indicate shooting attempt
+            localPlayer.setTint(0xffff00);
+            setTimeout(() => localPlayer.clearTint(), 50);
         }
     }
 
@@ -1588,27 +1610,109 @@ function createMobileControls() {
         mobileControls.shoot.isDown = false;
     });
     
-    // Add touchmove handlers to maintain button state when dragging
-    document.addEventListener('touchmove', function(e) {
-        // This prevents the buttons from getting "stuck" if the user
-        // drags their finger off the button
-        const touch = e.touches[0];
-        const element = document.elementFromPoint(touch.clientX, touch.clientY);
-        
-        // Reset all controls first
-        mobileControls.left.isDown = false;
-        mobileControls.right.isDown = false;
-        mobileControls.thrust.isDown = false;
-        mobileControls.shoot.isDown = false;
-        
-        // Set the appropriate control based on what element the touch is over
-        if (element) {
-            if (element.id === 'left-button') mobileControls.left.isDown = true;
-            if (element.id === 'right-button') mobileControls.right.isDown = true;
-            if (element.id === 'thrust-button') mobileControls.thrust.isDown = true;
-            if (element.id === 'shoot-button') mobileControls.shoot.isDown = true;
+    // Handle multi-touch by tracking all active touches
+    const activeTouches = {};
+    
+    document.addEventListener('touchstart', function(e) {
+        // Store each touch and check what element it's over
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            const element = document.elementFromPoint(touch.clientX, touch.clientY);
+            
+            if (element && element.id) {
+                activeTouches[touch.identifier] = element.id;
+                
+                // Set the appropriate control based on the element
+                if (element.id === 'left-button') mobileControls.left.isDown = true;
+                if (element.id === 'right-button') mobileControls.right.isDown = true;
+                if (element.id === 'thrust-button') mobileControls.thrust.isDown = true;
+                if (element.id === 'shoot-button') mobileControls.shoot.isDown = true;
+            }
         }
     });
     
-    console.log('Mobile controls initialized');
+    document.addEventListener('touchmove', function(e) {
+        // Update each touch as it moves
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            const element = document.elementFromPoint(touch.clientX, touch.clientY);
+            
+            // If this touch was previously over a control button
+            if (activeTouches[touch.identifier]) {
+                // If it moved off its original element, turn that control off
+                if (!element || element.id !== activeTouches[touch.identifier]) {
+                    const oldElementId = activeTouches[touch.identifier];
+                    if (oldElementId === 'left-button') mobileControls.left.isDown = false;
+                    if (oldElementId === 'right-button') mobileControls.right.isDown = false;
+                    if (oldElementId === 'thrust-button') mobileControls.thrust.isDown = false;
+                    if (oldElementId === 'shoot-button') mobileControls.shoot.isDown = false;
+                    
+                    // Update or remove the touch tracking
+                    if (element && element.id) {
+                        activeTouches[touch.identifier] = element.id;
+                        // Set the new control
+                        if (element.id === 'left-button') mobileControls.left.isDown = true;
+                        if (element.id === 'right-button') mobileControls.right.isDown = true;
+                        if (element.id === 'thrust-button') mobileControls.thrust.isDown = true;
+                        if (element.id === 'shoot-button') mobileControls.shoot.isDown = true;
+                    } else {
+                        delete activeTouches[touch.identifier];
+                    }
+                }
+            } 
+            // If the touch moved onto a control button
+            else if (element && element.id) {
+                activeTouches[touch.identifier] = element.id;
+                // Set the appropriate control
+                if (element.id === 'left-button') mobileControls.left.isDown = true;
+                if (element.id === 'right-button') mobileControls.right.isDown = true;
+                if (element.id === 'thrust-button') mobileControls.thrust.isDown = true;
+                if (element.id === 'shoot-button') mobileControls.shoot.isDown = true;
+            }
+        }
+    });
+    
+    document.addEventListener('touchend', function(e) {
+        // Handle touch end events
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            
+            // If this touch was over a control button
+            if (activeTouches[touch.identifier]) {
+                const elementId = activeTouches[touch.identifier];
+                
+                // Turn off the corresponding control
+                if (elementId === 'left-button') mobileControls.left.isDown = false;
+                if (elementId === 'right-button') mobileControls.right.isDown = false;
+                if (elementId === 'thrust-button') mobileControls.thrust.isDown = false;
+                if (elementId === 'shoot-button') mobileControls.shoot.isDown = false;
+                
+                // Remove this touch from tracking
+                delete activeTouches[touch.identifier];
+            }
+        }
+    });
+    
+    // Also handle touchcancel events
+    document.addEventListener('touchcancel', function(e) {
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const touch = e.changedTouches[i];
+            
+            // If this touch was over a control button
+            if (activeTouches[touch.identifier]) {
+                const elementId = activeTouches[touch.identifier];
+                
+                // Turn off the corresponding control
+                if (elementId === 'left-button') mobileControls.left.isDown = false;
+                if (elementId === 'right-button') mobileControls.right.isDown = false;
+                if (elementId === 'thrust-button') mobileControls.thrust.isDown = false;
+                if (elementId === 'shoot-button') mobileControls.shoot.isDown = false;
+                
+                // Remove this touch from tracking
+                delete activeTouches[touch.identifier];
+            }
+        }
+    });
+    
+    console.log('Mobile controls initialized with multi-touch support');
 } 
