@@ -771,9 +771,6 @@ function checkPlanetCollisions(player) {
     // Skip if player is already landed
     if (player.landedOnPlanet) return;
     
-    // Skip collision check if player has recently taken off (they'll be invulnerable)
-    if (player.invulnerable) return;
-    
     Object.values(gameState.planets).forEach(planet => {
         const dx = planet.x - player.x;
         const dy = planet.y - player.y;
