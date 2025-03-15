@@ -5,17 +5,17 @@
 const PHYSICS = {
     thrustPower: 0.2,  // Acceleration per frame when thrusting
     maxSpeed: 10,        // Maximum velocity
-    drag: 0.995,          // Drag coefficient (0.98 = 2% slowdown per frame)
+    drag: 1.0,          // Drag coefficient (0.98 = 2% slowdown per frame)
     
     // Planet physics
-    gravitationalConstant: 40.0, // Increased from 0.5 to 1.2 for stronger gravity
+    gravitationalConstant: 60.0, // Increased from 0.5 to 1.2 for stronger gravity
     maxLandingSpeed: 3.0,      // Maximum speed for safe landing
     takeoffBoost: 4.0,         // Increased from 5.0 to 8.0 for stronger initial velocity when taking off
 };
 
 // World configuration
 const WORLD = {
-    size: 8000,        // World size (width and height)
+    size: 6000,        // World size (width and height)
     maxPlayerDistance: 1200 // Maximum distance between players
 };
 
@@ -31,7 +31,7 @@ const GAME = {
 
 // Network settings
 const NETWORK = {
-    updateRate: 30      // Server updates per second
+    updateRate: 40      // Server updates per second
 };
 
 // Export for Node.js (server)
