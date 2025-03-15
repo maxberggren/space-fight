@@ -8,8 +8,8 @@ const PHYSICS = {
     drag: 1.0,          // Drag coefficient (0.98 = 2% slowdown per frame)
     
     // Planet physics
-    gravitationalConstant: 60.0, // Increased from 0.5 to 1.2 for stronger gravity
-    maxLandingSpeed: 3.0,      // Maximum speed for safe landing
+    gravitationalConstant: 50.0, // Increased from 0.5 to 1.2 for stronger gravity
+    maxLandingSpeed: 4.0,      // Maximum speed for safe landing
     takeoffBoost: 4.0,         // Increased from 5.0 to 8.0 for stronger initial velocity when taking off
 };
 
