@@ -1304,30 +1304,30 @@ function createPlanetGraphics(scene, planet) {
     container.add(planetBase);
     
     // If the planet has craters, create them as separate graphics objects with ERASE blend mode
-    if (planet.craters && planet.craters.length > 0) {
-        // Create a single graphics object for all craters
-        const cratersGraphics = scene.add.graphics();
-        
-        // Set blend mode to ERASE to cut out from the planet
-        cratersGraphics.setBlendMode(Phaser.BlendModes.ERASE);
-        
-        // Draw each crater
-        planet.craters.forEach(crater => {
-            // Calculate crater position relative to planet center
-            const craterX = crater.x - planet.x;
-            const craterY = crater.y - planet.y;
-            
-            // Draw the crater as a solid black circle
-            cratersGraphics.fillStyle(0x000000, 1);
-            cratersGraphics.beginPath();
-            cratersGraphics.arc(craterX, craterY, crater.radius, 0, Math.PI * 2, false);
-            cratersGraphics.closePath();
-            cratersGraphics.fillPath();
-        });
-        
-        // Add the craters graphics to the container
-        container.add(cratersGraphics);
-    }
+    // if (planet.craters && planet.craters.length > 0) { // Comment out this entire block
+    //     // Create a single graphics object for all craters
+    //     const cratersGraphics = scene.add.graphics();
+
+    //     // Set blend mode to ERASE to cut out from the planet
+    //     cratersGraphics.setBlendMode(Phaser.BlendModes.ERASE);
+
+    //     // Draw each crater
+    //     planet.craters.forEach(crater => {
+    //         // Calculate crater position relative to planet center
+    //         const craterX = crater.x - planet.x;
+    //         const craterY = crater.y - planet.y;
+
+    //         // Draw the crater as a solid black circle
+    //         cratersGraphics.fillStyle(0x000000, 1);
+    //         cratersGraphics.beginPath();
+    //         cratersGraphics.arc(craterX, craterY, crater.radius, 0, Math.PI * 2, false);
+    //         cratersGraphics.closePath();
+    //         cratersGraphics.fillPath();
+    //     });
+
+    //     // Add the craters graphics to the container
+    //     container.add(cratersGraphics);
+    // } // Comment out this entire block
     
     // Add owner name text
     if (planet.ownerId) {
