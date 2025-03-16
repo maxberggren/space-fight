@@ -496,14 +496,7 @@ function setupSocketHandlers(scene) {
         console.log(`Player crashed: ${data.playerId} on planet ${data.planetId}`);
         
         // Create large explosion effect
-        const explosion = scene.add.sprite(data.x, data.y, 'explosion');
-        explosion.setScale(2);
-        // Set depth to be under planets (-15 is less than planet's -10)
-        explosion.setDepth(-15);
-        explosion.play('explode');
-        explosion.once('animationcomplete', () => {
-            explosion.destroy();
-        });
+        createExplosionEffect(scene, data.x, data.y, 2, data.velocity);
 
         explosionSound.play({ volume: 0.6 });
     });
@@ -638,6 +631,17 @@ function setupSocketHandlers(scene) {
     // Listen for control percentages update from the server
     socket.on('controlPercentagesUpdate', (percentages) => {
         updateColorControlUI(percentages);
+    });
+
+    // Add a new socket handler for bullet hits
+    socket.on('playerHit', (data) => {
+        console.log(`Player hit: ${data.playerId} by bullet from ${data.shooterId}`);
+        
+        // Create explosion effect with the player's velocity
+        createExplosionEffect(scene, data.x, data.y, 1.5, data.velocity);
+        
+        // Play explosion sound
+        explosionSound.play({ volume: 0.5 });
     });
 }
 
@@ -1513,9 +1517,23 @@ function updateColorControlUI(controlPercentages) {
     // Clear existing content
     controlBarsContainer.innerHTML = '';
     
+    // Define fallback colors if PLAYER_COLORS is not defined
+    const playerColors = window.PLAYER_COLORS || [
+        { value: 0x0000ff, name: 'Blue' },
+        { value: 0xff0000, name: 'Red' },
+        { value: 0x00ff00, name: 'Green' },
+        { value: 0xffff00, name: 'Yellow' },
+        { value: 0xff00ff, name: 'Magenta' },
+        { value: 0x00ffff, name: 'Cyan' },
+        { value: 0xff8800, name: 'Orange' },
+        { value: 0x8800ff, name: 'Purple' },
+        { value: 0xffffff, name: 'White' },
+        { value: 0x888888, name: 'Gray' }
+    ];
+    
     // Get color names map for better labels
     const colorNamesMap = {};
-    PLAYER_COLORS.forEach(color => {
+    playerColors.forEach(color => {
         colorNamesMap[color.value] = color.name;
     });
     
@@ -1577,4 +1595,92 @@ function animateThrustFlame(flame) {
     // Randomly vary the flame size for a flickering effect
     const scaleVariation = 0.8 + Math.random() * 0.4; // 0.8 to 1.2
     flame.setScale(1, scaleVariation);
+}
+
+// Updated function for creating explosion effects with debris
+function createExplosionEffect(scene, x, y, scale = 1, velocity = { x: 0, y: 0 }) {
+    // Reduce explosion scale to 70% of original size
+    const adjustedScale = scale * 0.7;
+    
+    // Create main explosion sprite
+    const explosion = scene.add.sprite(x, y, 'explosion');
+    explosion.setScale(adjustedScale);
+    // Set depth to be under planets (-15 is less than planet's -10)
+    explosion.setDepth(-15);
+    explosion.play('explode');
+    explosion.once('animationcomplete', () => {
+        explosion.destroy();
+    });
+    
+    // Create more debris particles
+    const debrisCount = 18; // Increased from 12 to 18
+    const debrisSpeed = 150; // Base speed of debris
+    const debrisLifetime = 1000; // How long debris lasts (in ms)
+    
+    // Create debris particles
+    for (let i = 0; i < debrisCount; i++) {
+        // Create a small colored particle
+        const debrisColor = Phaser.Display.Color.HSVColorWheel()[i * 20].color; // Different colors (adjusted for more debris)
+        const debris = scene.add.circle(x, y, 2 + Math.random() * 3, debrisColor);
+        // Set depth to be under planets but above explosion
+        debris.setDepth(-14);
+        
+        // Calculate debris direction - spread in a circle but biased in velocity direction
+        const angle = (i / debrisCount) * Math.PI * 2;
+        const dirX = Math.cos(angle);
+        const dirY = Math.sin(angle);
+        
+        // Add velocity bias - debris tends to follow the ship's direction of travel
+        const velocityMagnitude = Math.sqrt(velocity.x * velocity.x + velocity.y * velocity.y);
+        const velocityInfluence = Math.min(0.7, velocityMagnitude / 300); // Cap the influence
+        
+        // Calculate final velocity with randomness and ship velocity influence
+        const speedVariation = 0.5 + Math.random();
+        const vx = dirX * debrisSpeed * speedVariation + (velocity.x * velocityInfluence);
+        const vy = dirY * debrisSpeed * speedVariation + (velocity.y * velocityInfluence);
+        
+        // Add physics to debris
+        scene.physics.add.existing(debris);
+        debris.body.setVelocity(vx, vy);
+        
+        // Add slight rotation to debris
+        debris.rotation = Math.random() * Math.PI * 2;
+        debris.rotationSpeed = -5 + Math.random() * 10;
+        
+        // Make debris fade out and disappear
+        scene.tweens.add({
+            targets: debris,
+            alpha: 0,
+            scale: { from: 1, to: 0.5 },
+            duration: debrisLifetime,
+            ease: 'Power2',
+            onComplete: () => {
+                debris.destroy();
+            },
+            onUpdate: (tween, target) => {
+                // Apply rotation during update
+                target.rotation += target.rotationSpeed * 0.01;
+            }
+        });
+    }
+    
+    // Add a subtle shockwave effect
+    const shockwave = scene.add.circle(x, y, 5, 0xffffff, 0.7);
+    // Set depth to be under planets and debris
+    shockwave.setDepth(-16);
+    
+    scene.tweens.add({
+        targets: shockwave,
+        radius: 50 * adjustedScale, // Scale the shockwave radius to match explosion size
+        alpha: 0,
+        duration: 500,
+        ease: 'Power2',
+        onUpdate: function() {
+            // Redraw the circle with new radius
+            shockwave.setRadius(shockwave.radius);
+        },
+        onComplete: () => {
+            shockwave.destroy();
+        }
+    });
 } 
