@@ -427,6 +427,12 @@ setInterval(() => {
     updateGameState();
     
     try {
+        // Calculate control percentages
+        const controlPercentages = calculateControlPercentages();
+        
+        // Emit control percentages to all clients
+        io.emit('controlPercentagesUpdate', controlPercentages);
+        
         // Create a clean, serializable version of the game state
         const cleanState = {
             players: {},
@@ -755,7 +761,8 @@ function createPlanetForPlayer(playerId) {
         radius: planetRadius,
         color: player.color,
         originalOwner: playerId, // Track the original owner
-        planetType: planetType // Store the planetType here
+        planetType: planetType, // Store the planetType here
+        ownershipHistory: [] // Track ownership changes with timestamps
     };
     
     // Initialize planet with full health (no damaged segments)
@@ -897,6 +904,15 @@ function checkPlanetCollisions(player) {
                     planet.ownerId = player.id;
                     planet.color = player.color;
 
+                    // Record the ownership change with a timestamp
+                    planet.ownershipHistory.push({
+                        ownerId: player.id,
+                        color: player.color,
+                        timestamp: Date.now()
+                    });
+
+                    console.log(`Ownership history for planet ${planet.id}:`, planet.ownershipHistory);
+
                     // Emit landing event with claiming info
                     io.emit('playerLanded', {
                         playerId: player.id,
@@ -995,4 +1011,40 @@ function getLocalIpAddress() {
         }
     }
     return 'localhost'; // Fallback
+}
+
+function calculateControlPercentages() {
+    const now = Date.now();
+    const oneMinuteAgo = now - 1 * 60 * 1000; // Changed from 10 minutes to 1 minute
+    const colorControlTimes = {};
+
+    Object.values(gameState.planets).forEach(planet => {
+        let lastTimestamp = oneMinuteAgo;
+        let lastColor = null;
+
+        planet.ownershipHistory.forEach(entry => {
+            if (entry.timestamp > oneMinuteAgo) { // Check against one minute ago
+                if (lastColor) {
+                    const duration = entry.timestamp - lastTimestamp;
+                    colorControlTimes[lastColor] = (colorControlTimes[lastColor] || 0) + duration;
+                }
+                lastTimestamp = entry.timestamp;
+                lastColor = entry.color;
+            }
+        });
+
+        if (lastColor) {
+            const duration = now - lastTimestamp;
+            colorControlTimes[lastColor] = (colorControlTimes[lastColor] || 0) + duration;
+        }
+    });
+
+    const totalControlTime = Object.values(colorControlTimes).reduce((sum, time) => sum + time, 0);
+    const controlPercentages = {};
+
+    for (const [color, time] of Object.entries(colorControlTimes)) {
+        controlPercentages[color] = (time / totalControlTime) * 100;
+    }
+
+    return controlPercentages;
 } 

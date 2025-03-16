@@ -115,6 +115,7 @@
             z-index: 100;
             width: 150px;
             height: auto;
+            margin-bottom: 20px;
         }
         
         /* Mobile controls styles */
@@ -210,13 +211,84 @@
             
             #logo {
                 width: 100px;
+                margin-bottom: 15px;
+            }
+        }
+        
+        #top-right-container {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        #planet-control-display {
+            background-color: rgba(0, 0, 0, 0.7);
+            border-radius: 5px;
+            padding: 8px;
+            width: 180px;
+            color: white;
+            margin-top: 45px;
+        }
+        
+        #planet-control-display h3 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+            text-align: center;
+        }
+        
+        .control-bar {
+            height: 20px;
+            margin-bottom: 5px;
+            border-radius: 3px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .control-bar-inner {
+            height: 100%;
+            transition: width 0.5s ease-in-out;
+        }
+        
+        .control-bar-label {
+            position: absolute;
+            right: 5px;
+            top: 2px;
+            font-size: 12px;
+            color: white;
+            text-shadow: 0 0 2px black, 0 0 2px black;
+        }
+        
+        /* Adjust for mobile */
+        @media (max-width: 600px) {
+            #top-right-container {
+                top: 55px; /* Move below the menu bar on mobile */
+            }
+            
+            #logo {
+                width: 100px;
+                margin-bottom: 15px;
+            }
+            
+            #planet-control-display {
+                width: 140px;
+                padding: 5px;
+                margin-top: 25px; /* Slightly reduced for mobile but still significant spacing */
             }
         }
     </style>
 </head>
 <body>
-    <!-- Logo in the top right corner -->
-    <img id="logo" src="assets/logo.png" alt="Game Logo">
+    <!-- Logo and planet control in the top right corner -->
+    <div id="top-right-container">
+        <img id="logo" src="assets/logo.png" alt="Game Logo">
+        <div id="planet-control-display">
+            <div id="control-bars"></div>
+        </div>
+    </div>
     
     <!-- Menu bar overlay -->
     <div id="menu-bar">

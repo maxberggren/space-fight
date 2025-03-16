@@ -674,6 +674,11 @@ function setupSocketHandlers(scene) {
             });
         }
     });
+
+    // Listen for control percentages update from the server
+    socket.on('controlPercentagesUpdate', (percentages) => {
+        updateColorControlUI(percentages);
+    });
 }
 
 // Create text for player names
@@ -1475,4 +1480,71 @@ function createMobileControls() {
     });
     
     console.log('Mobile controls initialized with multi-touch support');
-} 
+}
+
+// Update color control UI function
+function updateColorControlUI(controlPercentages) {
+    const controlBarsContainer = document.getElementById('control-bars');
+    if (!controlBarsContainer) return;
+    
+    // Clear existing content
+    controlBarsContainer.innerHTML = '';
+    
+    // Get color names map for better labels
+    const colorNamesMap = {};
+    PLAYER_COLORS.forEach(color => {
+        colorNamesMap[color.value] = color.name;
+    });
+    
+    // Sort colors by percentage (descending)
+    const sortedColors = Object.entries(controlPercentages)
+        .sort((a, b) => b[1] - a[1]);
+    
+    // Create a bar for each color
+    sortedColors.forEach(([colorHex, percentage]) => {
+        const color = parseInt(colorHex);
+        const colorName = colorNamesMap[color] || 'Unknown';
+        
+        // Create container for this color's bar
+        const barContainer = document.createElement('div');
+        barContainer.className = 'control-bar';
+        
+        // Create the inner bar that shows the percentage
+        const bar = document.createElement('div');
+        bar.className = 'control-bar-inner';
+        bar.style.width = `${percentage}%`;
+        bar.style.backgroundColor = `#${color.toString(16).padStart(6, '0')}`;
+        
+        // Add label showing percentage and color name
+        const label = document.createElement('div');
+        label.className = 'control-bar-label';
+        label.textContent = `${colorName} ${percentage.toFixed(1)}%`;
+        
+        // Assemble and add to container
+        barContainer.appendChild(bar);
+        barContainer.appendChild(label);
+        controlBarsContainer.appendChild(barContainer);
+    });
+}
+
+// Add CSS styles for the planet control UI
+function addControlUIStyles() {
+    const style = document.createElement('style');
+    style.textContent = `
+        #planet-control-ui {
+            transition: opacity 0.3s;
+        }
+        #planet-control-ui:hover {
+            opacity: 1 !important;
+        }
+        #planet-control-ui li {
+            display: flex;
+            align-items: center;
+            margin-bottom: 3px;
+        }
+    `;
+    document.head.appendChild(style);
+}
+
+// Call this in your game initialization
+addControlUIStyles(); 
