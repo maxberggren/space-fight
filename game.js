@@ -162,6 +162,10 @@ function preload() {
     
     // Load fallback planet texture - in case planet sprite loading fails or before they load
     this.load.image('planet-fallback', 'assets/planets/planet-fallback.png');
+    
+    // Load ship sprites
+    this.load.image('ship', 'assets/ship.png');
+    this.load.image('ship-color-mask', 'assets/ship-color-mask.png');
 }
 
 // Create game objects
@@ -661,16 +665,29 @@ function updatePlayerInfo() {
             playerNameTexts[socket.id].setText(playerName);
         }
         
-        // Update player color - recreate the triangle with new color
+        // Instead of recreating the ship, just update the color mask sprite
+        if (localPlayer.list && localPlayer.list.length >= 2) {
+            // Find the color mask sprite (should be the second item in the container)
+            const colorMask = localPlayer.list[1];
+            if (colorMask) {
+                // Update the tint without affecting the rotation
+                colorMask.setTint(selectedColor);
+                return; // Exit early since we don't need to recreate the ship
+            }
+        }
+        
+        // Fallback: If we can't find the color mask, recreate the entire ship
+        // but ensure we preserve the actual display angle
         const x = localPlayer.x;
         const y = localPlayer.y;
-        const angle = localPlayer.angle;
+        // Account for the 180-degree rotation we added to the ship
+        const originalAngle = localPlayer.angle + 90 - 180;
         
         // Remove old player sprite
         localPlayer.destroy();
         
-        // Create new player sprite with updated color
-        localPlayer = createPlayerTriangle(scene, x, y, selectedColor, angle);
+        // Create new player sprite with updated color and the correct angle
+        localPlayer = createPlayerTriangle(scene, x, y, selectedColor, originalAngle);
         localPlayer.id = socket.id;
     }
 }
@@ -738,7 +755,7 @@ function update(time, delta) {
         isThrusting: false,
         angle: localPlayer.angle,
         isShooting: false,
-        sequenceNumber: inputSequenceNumber++ // Add sequence number to track inputs
+        sequenceNumber: inputSequenceNumber++
     };
     
     // Check keyboard input (arrows and WASD)
@@ -753,9 +770,9 @@ function update(time, delta) {
     const isLanded = localPlayer.getData('landedOnPlanet');
     if (!isLanded) {
         if (cursors.left.isDown || wasdKeys.left.isDown) {
-            input.angle = localPlayer.angle -= 4;
+            input.angle -= 4;
         } else if (cursors.right.isDown || wasdKeys.right.isDown) {
-            input.angle = localPlayer.angle += 4;
+            input.angle += 4;
         }
     }
 
@@ -774,9 +791,9 @@ function update(time, delta) {
         // Handle rotation - only if not landed
         if (!isLanded) {
             if (mobileControls.left.isDown) {
-                input.angle = localPlayer.angle -= 4;
+                input.angle -= 4;
             } else if (mobileControls.right.isDown) {
-                input.angle = localPlayer.angle += 4;
+                input.angle += 4;
             }
         }
         
@@ -786,7 +803,7 @@ function update(time, delta) {
         }
     }
     
-    // Visual feedback for shooting attempt
+    // Track shooting cooldown, but no longer flash the ship
     if (input.isShooting && !localPlayer.getData('isInvulnerable')) {
         const now = time;
         const lastShot = localPlayer.getData('lastShot') || 0;
@@ -794,9 +811,7 @@ function update(time, delta) {
         
         if (now - lastShot > cooldown) {
             localPlayer.setData('lastShot', now);
-            // Flash the player briefly to indicate shooting attempt
-            localPlayer.setTint(0xffff00);
-            setTimeout(() => localPlayer.clearTint(), 50);
+            // Removed the color flashing code
         }
     }
 
@@ -955,70 +970,67 @@ function updateBulletsFromState(scene, bulletState) {
     }
 }
 
-// Create player triangles with proper center pivot
+// Create player ship with base sprite and colored mask
 function createPlayerTriangle(scene, x, y, color, angle) {
-    // Define triangle vertices relative to center (0,0)
-    const size = 20; // Half size of the triangle
-    const vertices = [
-        { x: size, y: 0 },          // Tip (pointing right)
-        { x: -size, y: -size },     // Left top
-        { x: -size, y: size }       // Left bottom
-    ];
+    // Create a container for the ship and its colored mask
+    const shipContainer = scene.add.container(x, y);
     
-    // Calculate the bounds for the texture
-    const textureSize = size * 2.5; // Make texture big enough to contain the triangle
+    // Create base ship sprite
+    const shipBase = scene.add.sprite(0, 0, 'ship');
+    shipBase.setOrigin(0.5, 0.5);
     
-    // Create the triangle graphics object to generate the texture
-    const graphics = scene.add.graphics();
+    // Create ship color mask sprite and tint it with player's color
+    const shipColorMask = scene.add.sprite(0, 0, 'ship-color-mask');
+    shipColorMask.setOrigin(0.5, 0.5);
+    shipColorMask.setTint(color);
     
-    // Position the graphics at the center of the texture
-    graphics.clear();
-    graphics.fillStyle(color, 1);
-    graphics.lineStyle(2, 0xffffff, 1);
+    // Make the ship 10% of its current size (scale 0.1)
+    shipBase.setScale(0.5);
+    shipColorMask.setScale(0.5);
     
-    // Draw the triangle centered in the texture
-    graphics.beginPath();
-    graphics.moveTo(vertices[0].x + textureSize/2, vertices[0].y + textureSize/2);
-    graphics.lineTo(vertices[1].x + textureSize/2, vertices[1].y + textureSize/2);
-    graphics.lineTo(vertices[2].x + textureSize/2, vertices[2].y + textureSize/2);
-    graphics.closePath();
-    graphics.fillPath();
-    graphics.strokePath();
+    // Add both sprites to the container
+    shipContainer.add(shipBase);
+    shipContainer.add(shipColorMask);
     
-    // Create unique key for this triangle
-    const key = 'triangle_' + color.toString(16);
+    // Apply a 90-degree rotation to both sprites to face them downward initially
+    shipBase.angle = 90;
+    shipColorMask.angle = 90;
     
-    // Generate texture from the graphics
-    graphics.generateTexture(key, textureSize, textureSize);
-    graphics.destroy();
+    // Set the container's initial angle
+    shipContainer.angle = angle;
     
-    // Create the ship using the generated texture
-    const ship = scene.add.sprite(x, y, key);
-    ship.setOrigin(0.5, 0.5); // Set origin to center for proper rotation
-    
-    // Add physics
-    scene.physics.add.existing(ship);
-    ship.body.setDamping(true);
+    // Add physics to the container
+    scene.physics.add.existing(shipContainer);
+    shipContainer.body.setDamping(true);
     
     // Use PHYSICS if available, otherwise use fallback values
     const dragValue = PHYSICS ? PHYSICS.drag : 0.9;
     const maxSpeedValue = PHYSICS ? PHYSICS.maxSpeed : 1;
     
-    ship.body.setDrag(dragValue);
-    ship.body.setMaxVelocity(maxSpeedValue, maxSpeedValue);
-    ship.body.setAngularDrag(0.9);
-    ship.angle = angle;
+    shipContainer.body.setDrag(dragValue);
+    shipContainer.body.setMaxVelocity(maxSpeedValue, maxSpeedValue);
+    shipContainer.body.setAngularDrag(0.9);
     
     // Add custom properties
-    ship.isThrusting = false;
-    ship.setData('isShooting', false);
-    ship.setData('lastShot', 0);
-    ship.setData('isInvulnerable', false);
+    shipContainer.isThrusting = false;
+    shipContainer.setData = function(key, value) { this[key] = value; };
+    shipContainer.getData = function(key) { return this[key]; };
+    shipContainer.setData('isShooting', false);
+    shipContainer.setData('lastShot', 0);
+    shipContainer.setData('isInvulnerable', false);
+    shipContainer.setData('landedOnPlanet', false);
     
-    // Store the tip position for bullet spawning (in local space)
-    ship.tipOffset = { x: size, y: 0 };
+    // Calculate the ship size for proper bullet spawning
+    // Adjust for the 0.1 scale
+    const size = Math.max(shipBase.width, shipBase.height) / 2 * 0.1;
     
-    return ship;
+    // Store the tip position for bullet spawning - now pointing downward
+    shipContainer.tipOffset = { x: 0, y: size };
+    
+    // Add a reference to the color mask for tinting
+    shipContainer.colorMask = shipColorMask;
+    
+    return shipContainer;
 }
 
 // Improved planet rendering function using sprites
@@ -1189,12 +1201,15 @@ function applyInput(player, input) {
     
     // Only update angle if not landed
     if (!isLanded) {
+        // Simply set the angle directly from input
         player.angle = input.angle;
     }
     
     // Apply thrust if thrusting and not landed
     if (input.isThrusting && !isLanded) {
-        const angleRad = player.angle * (Math.PI / 180);
+        // Convert angle to radians for thrust direction
+        // Adjust by 90 degrees so thrust direction is correct
+        const angleRad = (player.angle + 90) * (Math.PI / 180);
         player.body.velocity.x += Math.cos(angleRad) * PHYSICS.thrustPower;
         player.body.velocity.y += Math.sin(angleRad) * PHYSICS.thrustPower;
         
