@@ -556,67 +556,15 @@ function setupSocketHandlers(scene) {
     
     socket.on('playerTakeoff', (data) => {
         console.log(`Player took off: ${data.playerId} from planet ${data.planetId}`);
-        
-        // Create multiple thrust effects for a more dramatic takeoff
-        for (let i = 0; i < 3; i++) {
-            scene.time.delayedCall(i * 100, () => {
-                // Create thrust effect with slight position variation
-                const offsetX = (Math.random() - 0.5) * 10;
-                const offsetY = (Math.random() - 0.5) * 10;
-                const thrust = scene.add.sprite(data.x + offsetX, data.y + offsetY, 'explosion');
-                thrust.setScale(0.3 + Math.random() * 0.2);
-                thrust.setTint(0x00ffff);
-                thrust.setAlpha(0.7);
-                thrust.play('explode');
-                thrust.once('animationcomplete', () => {
-                    thrust.destroy();
-                });
-            });
-        }
-        
+                
         // Play a sound for takeoff
         if (data.playerId === socket.id) {
             // Remove any takeoff hint
             const hint = scene.children.getByName('takeoffHint');
             if (hint) hint.destroy();
-            
-            // Play sound if available
-            if (shootSound) shootSound.play({ volume: 0.3, detune: -300 });
         }
     });
-    
-    socket.on('planetSeverelyDamaged', (data) => {
-        console.log(`Planet severely damaged: ${data.planetId}`);
-        
-        // Create visual effect
-        if (planets[data.planetId]) {
-            const planet = planets[data.planetId];
-            
-            // Create multiple explosions around the planet
-            for (let i = 0; i < 5; i++) {
-                const angle = Math.random() * Math.PI * 2;
-                const distance = planet.radius * 0.8;
-                const x = planet.x + Math.cos(angle) * distance;
-                const y = planet.y + Math.sin(angle) * distance;
-                
-                // Add delayed explosions
-                scene.time.delayedCall(i * 200, () => {
-                    const explosion = scene.add.sprite(x, y, 'explosion');
-                    explosion.setScale(0.7);
-                    // Set depth to be under planets (-15 is less than planet's -10)
-                    explosion.setDepth(-15);
-                    explosion.play('explode');
-                    explosion.once('animationcomplete', () => {
-                        explosion.destroy();
-                    });
-                    
-                    // Play explosion sound
-                    explosionSound.play({ volume: 0.4 });
-                });
-            }
-        }
-    });
-    
+
     socket.on('planetClaimed', (data) => {
         console.log(`Planet ${data.planetId} claimed by player ${data.newOwnerId}`);
         
@@ -624,14 +572,6 @@ function setupSocketHandlers(scene) {
         if (planets[data.planetId]) {
             planets[data.planetId].ownerId = data.newOwnerId;
             planets[data.planetId].color = data.playerColor;
-            
-            // Play sound effect if available
-            if (data.newOwnerId === socket.id) {
-                // Play claim sound (using explosion sound with different pitch)
-                if (explosionSound) {
-                    explosionSound.play({ volume: 0.3, detune: -600 });
-                }
-            }
             
             // Show claim notification for all players
             const claimingPlayerName = data.playerName || "Unknown player";
