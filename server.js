@@ -177,7 +177,8 @@ io.on('connection', (socket) => {
                 color: Number(player.color || 0),
                 invulnerable: Boolean(player.invulnerable),
                 lastProcessedInput: Number(player.lastProcessedInput || 0),
-                landedOnPlanet: player.landedOnPlanet ? String(player.landedOnPlanet) : null
+                landedOnPlanet: player.landedOnPlanet ? String(player.landedOnPlanet) : null,
+                isThrusting: Boolean(player.isThrusting)
             };
         });
         
@@ -452,7 +453,8 @@ setInterval(() => {
                 color: Number(player.color || 0),
                 invulnerable: Boolean(player.invulnerable),
                 lastProcessedInput: Number(player.lastProcessedInput || 0),
-                landedOnPlanet: player.landedOnPlanet ? String(player.landedOnPlanet) : null
+                landedOnPlanet: player.landedOnPlanet ? String(player.landedOnPlanet) : null,
+                isThrusting: Boolean(player.isThrusting)
             };
         });
         

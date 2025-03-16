@@ -264,6 +264,12 @@ function setupSocketHandlers(scene) {
                 localPlayer = createPlayerTriangle(scene, playerData.x, playerData.y, 
                     playerData.color || selectedColor, playerData.angle);
                 localPlayer.id = playerId;
+                localPlayer.isThrusting = playerData.isThrusting;
+                
+                // Update thrust flame visibility
+                if (localPlayer.thrustFlame) {
+                    localPlayer.thrustFlame.visible = playerData.isThrusting;
+                }
                 
                 // Update our name and color if server has them
                 if (playerData.name) {
@@ -290,6 +296,13 @@ function setupSocketHandlers(scene) {
                 const otherPlayer = createPlayerTriangle(scene, playerData.x, playerData.y, 
                     playerData.color || 0xff0000, playerData.angle);
                 otherPlayer.id = playerId;
+                otherPlayer.isThrusting = playerData.isThrusting;
+                
+                // Update thrust flame visibility
+                if (otherPlayer.thrustFlame) {
+                    otherPlayer.thrustFlame.visible = playerData.isThrusting;
+                }
+                
                 otherPlayers[playerId] = otherPlayer;
                 
                 // Create name text for other player
@@ -415,6 +428,9 @@ function setupSocketHandlers(scene) {
                 otherPlayer.targetX = playerData.x;
                 otherPlayer.targetY = playerData.y;
                 otherPlayer.targetAngle = playerData.angle;
+                
+                // Update thrusting state
+                otherPlayer.isThrusting = playerData.isThrusting;
                 
                 // Store landed state
                 otherPlayer.setData('landedOnPlanet', playerData.landedOnPlanet);
@@ -762,8 +778,21 @@ function update(time, delta) {
     if (cursors.up.isDown || wasdKeys.up.isDown) {
         input.isThrusting = true;
         localPlayer.isThrusting = true;
+        
+        // Show thrust flame for local player immediately for responsive feedback
+        if (localPlayer.thrustFlame) {
+            localPlayer.thrustFlame.visible = true;
+            
+            // Add flame animation
+            animateThrustFlame(localPlayer.thrustFlame);
+        }
     } else {
         localPlayer.isThrusting = false;
+        
+        // Hide thrust flame
+        if (localPlayer.thrustFlame) {
+            localPlayer.thrustFlame.visible = false;
+        }
     }
 
     // Only allow rotation if player is not landed on a planet
@@ -853,6 +882,16 @@ function update(time, delta) {
             if (angleDiff > 180) angleDiff -= 360;
             if (angleDiff < -180) angleDiff += 360;
             player.angle = player.oldAngle + angleDiff * player.interpTime;
+        }
+        
+        // Update thrust flame visibility based on isThrusting state
+        if (player.thrustFlame) {
+            player.thrustFlame.visible = player.isThrusting;
+            
+            // Animate flame if visible
+            if (player.isThrusting) {
+                animateThrustFlame(player.thrustFlame);
+            }
         }
     });
 
@@ -984,17 +1023,43 @@ function createPlayerTriangle(scene, x, y, color, angle) {
     shipColorMask.setOrigin(0.5, 0.5);
     shipColorMask.setTint(color);
     
+    // Create thrust flame sprite (initially invisible)
+    const thrustFlame = scene.add.graphics();
+    thrustFlame.fillStyle(0xff9900, 1); // Orange flame
+    
+    // Draw flame shape pointing downward (since ship is rotated)
+    thrustFlame.beginPath();
+    thrustFlame.moveTo(-5, 15); // Left point at bottom of ship
+    thrustFlame.lineTo(0, 30);   // Bottom point of flame
+    thrustFlame.lineTo(5, 15);  // Right point at bottom of ship
+    thrustFlame.closePath();
+    thrustFlame.fill();
+    
+    // Add inner flame (brighter)
+    thrustFlame.fillStyle(0xffff00, 1); // Yellow inner flame
+    thrustFlame.beginPath();
+    thrustFlame.moveTo(-3, 15); // Left point at bottom of ship
+    thrustFlame.lineTo(0, 25);   // Bottom point of inner flame
+    thrustFlame.lineTo(3, 15);  // Right point at bottom of ship
+    thrustFlame.closePath();
+    thrustFlame.fill();
+    
+    // Hide flame initially
+    thrustFlame.visible = false;
+    
     // Make the ship 10% of its current size (scale 0.1)
     shipBase.setScale(0.5);
     shipColorMask.setScale(0.5);
     
-    // Add both sprites to the container
+    // Add all sprites to the container
     shipContainer.add(shipBase);
     shipContainer.add(shipColorMask);
+    shipContainer.add(thrustFlame);
     
     // Apply a 90-degree rotation to both sprites to face them downward initially
     shipBase.angle = 90;
     shipColorMask.angle = 90;
+    thrustFlame.angle = 90;
     
     // Set the container's initial angle
     shipContainer.angle = angle;
@@ -1019,6 +1084,9 @@ function createPlayerTriangle(scene, x, y, color, angle) {
     shipContainer.setData('lastShot', 0);
     shipContainer.setData('isInvulnerable', false);
     shipContainer.setData('landedOnPlanet', false);
+    
+    // Store reference to thrust flame
+    shipContainer.thrustFlame = thrustFlame;
     
     // Calculate the ship size for proper bullet spawning
     // Adjust for the 0.1 scale
@@ -1502,4 +1570,11 @@ function addControlUIStyles() {
 }
 
 // Call this in your game initialization
-addControlUIStyles(); 
+addControlUIStyles();
+
+// Add a function to animate the thrust flame
+function animateThrustFlame(flame) {
+    // Randomly vary the flame size for a flickering effect
+    const scaleVariation = 0.8 + Math.random() * 0.4; // 0.8 to 1.2
+    flame.setScale(1, scaleVariation);
+} 
