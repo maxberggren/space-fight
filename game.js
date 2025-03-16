@@ -374,6 +374,9 @@ function setupSocketHandlers(scene) {
                     localPlayer.body.velocity.x = 0;
                     localPlayer.body.velocity.y = 0;
                     
+                    // Store landed state
+                    localPlayer.setData('landedOnPlanet', playerData.landedOnPlanet);
+                    
                     // Re-apply all pending inputs
                     pendingInputs.forEach(input => {
                         applyInput(localPlayer, input);
@@ -385,6 +388,9 @@ function setupSocketHandlers(scene) {
                         localPlayer.x = playerData.x;
                         localPlayer.y = playerData.y;
                     }
+                    
+                    // Store landed state
+                    localPlayer.setData('landedOnPlanet', playerData.landedOnPlanet);
                 }
                 
                 // Update player name position
@@ -405,6 +411,9 @@ function setupSocketHandlers(scene) {
                 otherPlayer.targetX = playerData.x;
                 otherPlayer.targetY = playerData.y;
                 otherPlayer.targetAngle = playerData.angle;
+                
+                // Store landed state
+                otherPlayer.setData('landedOnPlanet', playerData.landedOnPlanet);
                 
                 // Reset interpolation timer
                 otherPlayer.interpTime = 0;
@@ -795,10 +804,14 @@ function update(time, delta) {
         localPlayer.isThrusting = false;
     }
 
-    if (cursors.left.isDown || wasdKeys.left.isDown) {
-        input.angle = localPlayer.angle -= 4;
-    } else if (cursors.right.isDown || wasdKeys.right.isDown) {
-        input.angle = localPlayer.angle += 4;
+    // Only allow rotation if player is not landed on a planet
+    const isLanded = localPlayer.getData('landedOnPlanet');
+    if (!isLanded) {
+        if (cursors.left.isDown || wasdKeys.left.isDown) {
+            input.angle = localPlayer.angle -= 4;
+        } else if (cursors.right.isDown || wasdKeys.right.isDown) {
+            input.angle = localPlayer.angle += 4;
+        }
     }
 
     if (cursors.space.isDown || shiftKey.isDown) {
@@ -813,11 +826,13 @@ function update(time, delta) {
             localPlayer.isThrusting = true;
         }
         
-        // Handle rotation
-        if (mobileControls.left.isDown) {
-            input.angle = localPlayer.angle -= 4;
-        } else if (mobileControls.right.isDown) {
-            input.angle = localPlayer.angle += 4;
+        // Handle rotation - only if not landed
+        if (!isLanded) {
+            if (mobileControls.left.isDown) {
+                input.angle = localPlayer.angle -= 4;
+            } else if (mobileControls.right.isDown) {
+                input.angle = localPlayer.angle += 4;
+            }
         }
         
         // Handle shooting
@@ -1224,11 +1239,16 @@ function applyPlanetaryGravity(player, delta) {
 function applyInput(player, input) {
     if (!PHYSICS) return;
     
-    // Update angle
-    player.angle = input.angle;
+    // Check if player is landed
+    const isLanded = player.getData('landedOnPlanet');
     
-    // Apply thrust if thrusting
-    if (input.isThrusting) {
+    // Only update angle if not landed
+    if (!isLanded) {
+        player.angle = input.angle;
+    }
+    
+    // Apply thrust if thrusting and not landed
+    if (input.isThrusting && !isLanded) {
         const angleRad = player.angle * (Math.PI / 180);
         player.body.velocity.x += Math.cos(angleRad) * PHYSICS.thrustPower;
         player.body.velocity.y += Math.sin(angleRad) * PHYSICS.thrustPower;
@@ -1242,8 +1262,10 @@ function applyInput(player, input) {
         }
     }
     
-    // Apply gravity from planets
-    applyPlanetaryGravity(player, 1);
+    // Apply gravity from planets (only if not landed)
+    if (!isLanded) {
+        applyPlanetaryGravity(player, 1);
+    }
 }
 
 // Helper function to detect touch devices

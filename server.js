@@ -337,6 +337,10 @@ io.on('connection', (socket) => {
         if (!player.landedOnPlanet) {
             player.isThrusting = input.isThrusting;
             player.angle = input.angle;
+        } else {
+            // When landed, only update thrusting state but not angle
+            player.isThrusting = input.isThrusting;
+            // Angle remains fixed while landed
         }
 
         // Handle shooting with cooldown
