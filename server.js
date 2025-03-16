@@ -292,7 +292,7 @@ io.on('connection', (socket) => {
                     const angle = Math.atan2(dy, dx);
                     
                     // Move player slightly away from planet surface to prevent immediate collision
-                    const safeDistance = planet.radius + 30; // Add 30 units of clearance
+                    const safeDistance = planet.radius + 270; // Add 30 units of clearance
                     const scaleFactor = safeDistance / distance;
                     player.x = planet.x + dx * scaleFactor;
                     player.y = planet.y + dy * scaleFactor;
