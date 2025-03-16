@@ -145,7 +145,7 @@ io.on('connection', (socket) => {
         health: 100,
         name: "Player", // Default player name
         color: 0x0000ff, // Default player color (blue)
-        invulnerable: true,
+        invulnerable: false,
         lastProcessedInput: 0,
         lastShootTime: null,
         landedOnPlanet: null, // Track if player is landed on a planet
@@ -155,14 +155,6 @@ io.on('connection', (socket) => {
     
     // Create a planet for the player
     createPlanetForPlayer(socket.id);
-    
-    // Set a timer to remove initial invulnerability
-    setTimeout(() => {
-        if (gameState.players[socket.id]) {
-            gameState.players[socket.id].invulnerable = false;
-            console.log(`Initial invulnerability removed for player ${socket.id}`);
-        }
-    }, GAME.respawnInvulnerabilityTime);
 
     // Send initial game state to new player
     try {
@@ -676,24 +668,16 @@ function respawnPlayer(player) {
     player.y = spawnPoint.y;
     player.angle = spawnPoint.angle;
     player.velocity = { x: 0, y: 0 };
-    player.invulnerable = true;
+    player.invulnerable = false;
     player.landedOnPlanet = null;
     
     console.log(`Player ${player.id} was hit and respawned at (${player.x.toFixed(2)}, ${player.y.toFixed(2)})`);
-    console.log(`Player ${player.id} is now invulnerable for ${GAME.respawnInvulnerabilityTime}ms`);
     
     // Clear any existing invulnerability timer
     if (player.invulnerabilityTimer) {
         clearTimeout(player.invulnerabilityTimer);
+        player.invulnerabilityTimer = null;
     }
-    
-    // Remove invulnerability after time from shared config
-    player.invulnerabilityTimer = setTimeout(() => {
-        if (gameState.players[player.id]) {
-            gameState.players[player.id].invulnerable = false;
-            console.log(`Player ${player.id} is no longer invulnerable`);
-        }
-    }, GAME.respawnInvulnerabilityTime);
 }
 
 function getRandomSpawnPoint() {

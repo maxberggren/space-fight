@@ -260,8 +260,6 @@ function setupSocketHandlers(scene) {
                 localPlayer = createPlayerTriangle(scene, playerData.x, playerData.y, 
                     playerData.color || selectedColor, playerData.angle);
                 localPlayer.id = playerId;
-                // Set initial invulnerability state
-                updatePlayerInvulnerability(localPlayer, playerData.invulnerable);
                 
                 // Update our name and color if server has them
                 if (playerData.name) {
@@ -289,8 +287,6 @@ function setupSocketHandlers(scene) {
                     playerData.color || 0xff0000, playerData.angle);
                 otherPlayer.id = playerId;
                 otherPlayers[playerId] = otherPlayer;
-                // Set initial invulnerability state
-                updatePlayerInvulnerability(otherPlayer, playerData.invulnerable);
                 
                 // Create name text for other player
                 createPlayerNameText(scene, playerId, playerData.name || "Player");
@@ -348,9 +344,6 @@ function setupSocketHandlers(scene) {
                 const y = otherPlayer.y;
                 const angle = otherPlayer.angle;
                 
-                // Store any custom properties
-                const isInvulnerable = otherPlayer.getData('isInvulnerable');
-                
                 // Remove old player sprite
                 otherPlayer.destroy();
                 
@@ -358,9 +351,6 @@ function setupSocketHandlers(scene) {
                 const updatedPlayer = createPlayerTriangle(scene, x, y, playerData.color, angle);
                 updatedPlayer.id = playerData.id;
                 otherPlayers[playerData.id] = updatedPlayer;
-                
-                // Restore custom properties
-                updatePlayerInvulnerability(updatedPlayer, isInvulnerable);
             }
         }
     });
@@ -371,9 +361,6 @@ function setupSocketHandlers(scene) {
             const playerData = state.players[playerId];
             
             if (playerId === socket.id && localPlayer) {
-                // Update invulnerability state with visual effect
-                updatePlayerInvulnerability(localPlayer, playerData.invulnerable);
-                
                 // Server reconciliation
                 if (playerData.lastProcessedInput) {
                     // Remove older inputs that have been processed
@@ -421,9 +408,6 @@ function setupSocketHandlers(scene) {
                 
                 // Reset interpolation timer
                 otherPlayer.interpTime = 0;
-                
-                // Update invulnerability state with visual effect
-                updatePlayerInvulnerability(otherPlayer, playerData.invulnerable);
                 
                 // Update player name position
                 if (playerNameTexts[playerId]) {
@@ -589,35 +573,6 @@ function setupSocketHandlers(scene) {
             
             // Play sound if available
             if (shootSound) shootSound.play({ volume: 0.3, detune: -300 });
-            
-            // Add visual effect to indicate invulnerability
-            if (localPlayer) {
-                // Flash the player briefly
-                localPlayer.setTint(0x00ffff);
-                scene.time.delayedCall(500, () => {
-                    localPlayer.clearTint();
-                });
-                
-                // Show a temporary message
-                const safeText = scene.add.text(data.x, data.y - 40, "Safe takeoff!", {
-                    fontSize: '14px',
-                    fill: '#00FFFF',
-                    stroke: '#000000',
-                    strokeThickness: 3
-                });
-                safeText.setOrigin(0.5, 0.5);
-                
-                // Fade out
-                scene.tweens.add({
-                    targets: safeText,
-                    alpha: 0,
-                    y: safeText.y - 30,
-                    duration: 1500,
-                    onComplete: () => {
-                        safeText.destroy();
-                    }
-                });
-            }
         }
     });
     
@@ -757,44 +712,18 @@ function updatePlayerInfo() {
         const y = localPlayer.y;
         const angle = localPlayer.angle;
         
-        // Store any custom properties
-        const isInvulnerable = localPlayer.getData('isInvulnerable');
-        
         // Remove old player sprite
         localPlayer.destroy();
         
         // Create new player sprite with updated color
         localPlayer = createPlayerTriangle(scene, x, y, selectedColor, angle);
         localPlayer.id = socket.id;
-        
-        // Restore custom properties
-        updatePlayerInvulnerability(localPlayer, isInvulnerable);
     }
 }
 
-// Function to update player invulnerability with visual feedback
 function updatePlayerInvulnerability(player, isInvulnerable) {
-    // Store previous state to detect changes
-    const wasInvulnerable = player.getData('isInvulnerable');
-    
-    // Update the data
-    player.setData('isInvulnerable', isInvulnerable);
-    
-    // Visual feedback for invulnerability
-    if (isInvulnerable) {
-        // Apply visual effect to the player ship itself instead of using a shield sprite
-        player.setAlpha(0.7); // Make the ship slightly transparent when invulnerable
-        player.setTint(0x00ffff); // Add a cyan tint to indicate invulnerability
-    } else {
-        // Restore normal appearance
-        player.setAlpha(1);
-        player.clearTint();
-    }
-    
-    // Log state change
-    if (wasInvulnerable !== isInvulnerable) {
-        console.log(`Player ${player.id} invulnerability changed: ${isInvulnerable}`);
-    }
+    // Remove this function entirely or keep it empty for future use
+    // This function previously handled the opacity changes for invulnerable players
 }
 
 // Replace the grid background function with a starfield function
