@@ -463,6 +463,8 @@ function setupSocketHandlers(scene) {
         // Create explosion effect ONLY at the actual impact point
         const explosion = scene.add.sprite(data.x, data.y, 'explosion');
         explosion.setScale(0.5);
+        // Set depth to be under planets (-15 is less than planet's -10)
+        explosion.setDepth(-15);
         explosion.play('explode');
         explosion.once('animationcomplete', () => {
             explosion.destroy();
@@ -483,12 +485,14 @@ function setupSocketHandlers(scene) {
         // Create large explosion effect
         const explosion = scene.add.sprite(data.x, data.y, 'explosion');
         explosion.setScale(2);
+        // Set depth to be under planets (-15 is less than planet's -10)
+        explosion.setDepth(-15);
         explosion.play('explode');
         explosion.once('animationcomplete', () => {
             explosion.destroy();
         });
 
-        {{explosionSound.play({ volume: 0.6 });}}
+        explosionSound.play({ volume: 0.6 });
     });
     
     socket.on('playerLanded', (data) => {
@@ -635,6 +639,8 @@ function setupSocketHandlers(scene) {
                 scene.time.delayedCall(i * 200, () => {
                     const explosion = scene.add.sprite(x, y, 'explosion');
                     explosion.setScale(0.7);
+                    // Set depth to be under planets (-15 is less than planet's -10)
+                    explosion.setDepth(-15);
                     explosion.play('explode');
                     explosion.once('animationcomplete', () => {
                         explosion.destroy();

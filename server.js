@@ -887,14 +887,10 @@ function checkPlanetCollisions(player) {
                     // Safe landing - position player on the visible surface and stop movement
                     console.log(`Player ${player.id} safely landed on planet ${planet.id}`);
 
-                    // Define ship length (distance from center to edge)
-                    const shipLength = 15; // Adjust this value based on your ship size
-
-                    // Calculate position on the surface, accounting for ship length
-                    // This positions the ship so its edge touches the planet surface, not its center
+                    // Calculate position on the surface
                     const surfaceAngle = Math.atan2(dy, dx);
-                    player.x = planet.x - Math.cos(surfaceAngle) * (planet.radius + shipLength);
-                    player.y = planet.y - Math.sin(surfaceAngle) * (planet.radius + shipLength);
+                    player.x = planet.x - Math.cos(surfaceAngle) * (planet.radius + 5);
+                    player.y = planet.y - Math.sin(surfaceAngle) * (planet.radius + 5);
 
                     // Set player angle to be tangent to planet surface
                     player.angle = (surfaceAngle * (180 / Math.PI) + 90) % 360;
