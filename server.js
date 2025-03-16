@@ -634,67 +634,27 @@ function updateBullets() {
             const distance = Math.sqrt(dx * dx + dy * dy);
             
             // Check if bullet is near the planet's surface
-            if (distance < planet.radius + 5 && distance > planet.radius - 30) {
+            if (distance < planet.radius + 5) {
                 // Calculate impact angle from planet center to bullet
                 const impactAngle = Math.atan2(dy, dx);
                 
-                // Calculate the expected surface point
-                const surfaceX = planet.x - Math.cos(impactAngle) * planet.radius;
-                const surfaceY = planet.y - Math.sin(impactAngle) * planet.radius;
+                // Bullet hit planet
+                console.log(`Bullet hit planet owned by ${planet.ownerId.substring(0,4)} at angle ${(impactAngle * 180 / Math.PI).toFixed(2)}°`);
                 
-                // Check if this point is inside any existing crater
-                let insideCrater = false;
-                let effectiveSurfaceDistance = planet.radius;
+                // Calculate the exact impact coordinates (where the bullet actually hit)
+                const exactImpactX = bullet.x;
+                const exactImpactY = bullet.y;
                 
-                if (planet.craters && planet.craters.length > 0) {
-                    // Check each crater
-                    for (const crater of planet.craters) {
-                        // Calculate distance from impact point to crater center
-                        const craterDx = surfaceX - crater.x;
-                        const craterDy = surfaceY - crater.y;
-                        const craterDistance = Math.sqrt(craterDx * craterDx + craterDy * craterDy);
-                        
-                        // If impact point is inside crater, adjust effective surface
-                        if (craterDistance < crater.radius) {
-                            insideCrater = true;
-                            
-                            // Calculate how much deeper the surface is
-                            const depthFactor = 1 - (craterDistance / crater.radius);
-                            const craterDepth = crater.radius * 0.7; // Max depth is 70% of crater radius
-                            const adjustedRadius = planet.radius - (craterDepth * depthFactor);
-                            
-                            // Use the smallest effective radius (deepest crater at this angle)
-                            if (adjustedRadius < effectiveSurfaceDistance) {
-                                effectiveSurfaceDistance = adjustedRadius;
-                            }
-                        }
-                    }
-                }
+                // Emit planet hit event to all clients with exact impact coordinates
+                io.emit('planetHit', {
+                    planetId: planet.id,
+                    bulletOwnerId: bullet.ownerId,
+                    x: exactImpactX,
+                    y: exactImpactY,
+                    impactAngle: impactAngle
+                });
                 
-                // Check if bullet hit the effective surface
-                if (distance < effectiveSurfaceDistance + 5) {
-                    // Bullet hit planet
-                    console.log(`Bullet hit planet owned by ${planet.ownerId.substring(0,4)} at angle ${(impactAngle * 180 / Math.PI).toFixed(2)}°`);
-                    
-                    // Calculate the exact impact coordinates (where the bullet actually hit)
-                    const exactImpactX = bullet.x;
-                    const exactImpactY = bullet.y;
-                    
-                    // Damage the planet (create a crater)
-                    damagePlanet(planet, impactAngle);
-                    
-                    // Emit planet hit event to all clients with exact impact coordinates
-                    io.emit('planetHit', {
-                        planetId: planet.id,
-                        bulletOwnerId: bullet.ownerId,
-                        x: exactImpactX,
-                        y: exactImpactY,
-                        impactAngle: impactAngle,
-                        insideCrater: insideCrater
-                    });
-                    
-                    bulletsToRemove.push(index);
-                }
+                bulletsToRemove.push(index);
             }
         });
 
@@ -806,9 +766,7 @@ function createPlanetForPlayer(playerId) {
         y: planetY,
         radius: planetRadius,
         color: player.color,
-        segments: [], // Will store segments that are damaged
         originalOwner: playerId, // Track the original owner
-        craters: [], // New craters array
         planetType: planetType // Store the planetType here
     };
     
@@ -887,49 +845,15 @@ function checkPlanetCollisions(player) {
         const distance = Math.sqrt(dx * dx + dy * dy);
 
         // Check if player is near the planet
-        if (distance < planet.radius + 30) { // Expanded check radius to account for craters
+        if (distance < planet.radius + 30) { // Expanded check radius
             // Calculate angle from planet center to player
             const approachAngle = Math.atan2(dy, dx);
 
-            // Calculate the expected surface point if the planet were intact
-            const surfaceX = planet.x - Math.cos(approachAngle) * planet.radius;
-            const surfaceY = planet.y - Math.sin(approachAngle) * planet.radius;
-
-            // Check if this point is inside any crater
-            let insideCrater = false;
-            let effectiveSurfaceDistance = planet.radius;
-
-            if (planet.craters && planet.craters.length > 0) {
-                // Check each crater
-                for (const crater of planet.craters) {
-                    // Calculate distance from approach point to crater center
-                    const craterDx = surfaceX - crater.x;
-                    const craterDy = surfaceY - crater.y;
-                    const craterDistance = Math.sqrt(craterDx * craterDx + craterDy * craterDy);
-
-                    // If approach point is inside crater, player can go deeper
-                    if (craterDistance < crater.radius) {
-                        insideCrater = true;
-
-                        // Calculate how much deeper the player can go
-                        // This creates a curved surface inside the crater
-                        const depthFactor = 1 - (craterDistance / crater.radius);
-                        const craterDepth = crater.radius * 0.7; // Max depth is 70% of crater radius
-                        const adjustedRadius = planet.radius - (craterDepth * depthFactor);
-
-                        // Use the smallest effective radius (deepest crater at this angle)
-                        if (adjustedRadius < effectiveSurfaceDistance) {
-                            effectiveSurfaceDistance = adjustedRadius;
-                        }
-                    }
-                }
-            }
-
-            // Now check collision with the effective surface
-            const effectiveDistance = distance - effectiveSurfaceDistance;
+            // Now check collision with the surface
+            const effectiveDistance = distance - planet.radius;
             const collisionThreshold = 10; // Ship radius
 
-            // Check if player is colliding with the effective surface
+            // Check if player is colliding with the surface
             if (effectiveDistance < collisionThreshold) {
                 // Calculate impact velocity (speed towards the planet)
                 const impactAngle = Math.atan2(dy, dx);
@@ -939,7 +863,7 @@ function checkPlanetCollisions(player) {
 
                 const impactSpeed = Math.abs(velocityTowardsPlanet);
 
-                console.log(`Player ${player.id} collided with planet at speed ${impactSpeed.toFixed(2)}, inside crater: ${insideCrater}`);
+                console.log(`Player ${player.id} collided with planet at speed ${impactSpeed.toFixed(2)}`);
 
                 // If impact speed is too high, player dies
                 if (impactSpeed > PHYSICS.maxLandingSpeed) {
@@ -952,8 +876,7 @@ function checkPlanetCollisions(player) {
                             planetId: planet.id,
                             x: player.x,
                             y: player.y,
-                            impactSpeed: impactSpeed,
-                            insideCrater: insideCrater
+                            impactSpeed: impactSpeed
                         });
 
                         respawnPlayer(player);
@@ -961,13 +884,17 @@ function checkPlanetCollisions(player) {
                         console.log(`Player ${player.id} is invulnerable, crash avoided.`);
                     }
                 } else {
-                    // Safe landing - position player on the effective surface and stop movement
-                    console.log(`Player ${player.id} safely landed on planet ${planet.id}, inside crater: ${insideCrater}`);
+                    // Safe landing - position player on the visible surface and stop movement
+                    console.log(`Player ${player.id} safely landed on planet ${planet.id}`);
 
-                    // Calculate position on effective surface
+                    // Define ship length (distance from center to edge)
+                    const shipLength = 15; // Adjust this value based on your ship size
+
+                    // Calculate position on the surface, accounting for ship length
+                    // This positions the ship so its edge touches the planet surface, not its center
                     const surfaceAngle = Math.atan2(dy, dx);
-                    player.x = planet.x - Math.cos(surfaceAngle) * (effectiveSurfaceDistance + 5);
-                    player.y = planet.y - Math.sin(surfaceAngle) * (effectiveSurfaceDistance + 5);
+                    player.x = planet.x - Math.cos(surfaceAngle) * (planet.radius + shipLength);
+                    player.y = planet.y - Math.sin(surfaceAngle) * (planet.radius + shipLength);
 
                     // Set player angle to be tangent to planet surface
                     player.angle = (surfaceAngle * (180 / Math.PI) + 90) % 360;
@@ -995,8 +922,7 @@ function checkPlanetCollisions(player) {
                         angle: player.angle,
                         claimed: true,
                         previousOwner: previousOwner,
-                        wasClaimed: wasClaimed,
-                        insideCrater: insideCrater
+                        wasClaimed: wasClaimed
                     });
 
                     // Emit planet claimed event
@@ -1022,51 +948,6 @@ function checkPlanetCollisions(player) {
             }
         }
     });
-}
-
-// Damage a planet when hit by a bullet
-function damagePlanet(planet, impactAngle) {
-    // Instead of using pie slices, we'll create circular cutouts at the impact point
-    
-    // Calculate impact position on the planet surface
-    const impactX = planet.x - Math.cos(impactAngle) * planet.radius;
-    const impactY = planet.y - Math.sin(impactAngle) * planet.radius;
-    
-    // Create a new crater at the impact point
-    const craterRadius = 15 + Math.random() * 10; // Random crater size between 15-25 units
-    
-    // Initialize craters array if it doesn't exist
-    if (!planet.craters) {
-        planet.craters = [];
-    }
-    
-    // Add the new crater
-    const newCrater = {
-        x: impactX,
-        y: impactY,
-        radius: craterRadius,
-        angle: impactAngle // Store the angle for reference
-    };
-    
-    // planet.craters.push(newCrater); // Comment out to disable crater creation
-    console.log(`Planet ${planet.id} damaged at angle ${(impactAngle * 180 / Math.PI).toFixed(2)}°, crater at (${impactX.toFixed(2)}, ${impactY.toFixed(2)}), radius: ${craterRadius.toFixed(2)}`);
-    
-    // If too many craters, planet is severely damaged
-    if (planet.craters.length > 15) { // Adjust this threshold as needed
-        console.log(`Planet ${planet.id} has been severely damaged with ${planet.craters.length} craters!`);
-        
-        // Emit planet severely damaged event
-        io.emit('planetSeverelyDamaged', {
-            planetId: planet.id,
-            ownerId: planet.ownerId
-        });
-    }
-    
-    // Emit crater created event
-    // io.emit('craterCreated', { // Comment out to disable crater event
-    //     planetId: planet.id,
-    //     crater: newCrater
-    // });
 }
 
 // Add a function to check for inactive players
