@@ -10,7 +10,7 @@ const PHYSICS = {
     // Planet physics
     gravitationalConstant: 50.0, // Increased from 0.5 to 1.2 for stronger gravity
     maxLandingSpeed: 4.0,      // Maximum speed for safe landing
-    takeoffBoost: 4.0,         // Increased from 5.0 to 8.0 for stronger initial velocity when taking off
+    takeoffBoost: 3.0,         // Reduced from 4.0 to 2.0 for more gradual takeoff
 };
 
 // World configuration

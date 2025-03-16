@@ -284,7 +284,7 @@ io.on('connection', (socket) => {
                 // Clear the landed state
                 player.landedOnPlanet = null;
                 
-                // Give a boost away from the planet
+                // Give a small initial boost away from the planet
                 if (planet) {
                     const dx = player.x - planet.x;
                     const dy = player.y - planet.y;
@@ -292,14 +292,14 @@ io.on('connection', (socket) => {
                     const angle = Math.atan2(dy, dx);
                     
                     // Move player slightly away from planet surface to prevent immediate collision
-                    const safeDistance = planet.radius + 270; // Add 30 units of clearance
+                    const safeDistance = planet.radius + 20; // Reduced from 270 to 20 for more gradual takeoff
                     const scaleFactor = safeDistance / distance;
                     player.x = planet.x + dx * scaleFactor;
                     player.y = planet.y + dy * scaleFactor;
                     
-                    // Set velocity away from planet center with the takeoff boost value
-                    player.velocity.x = Math.cos(angle) * PHYSICS.takeoffBoost;
-                    player.velocity.y = Math.sin(angle) * PHYSICS.takeoffBoost;
+                    // Set a much smaller initial velocity away from planet center
+                    player.velocity.x = Math.cos(angle) * (PHYSICS.takeoffBoost * 0.3); // Reduced to 30% of original boost
+                    player.velocity.y = Math.sin(angle) * (PHYSICS.takeoffBoost * 0.3);
                     
                     // Also set player angle to match takeoff direction
                     player.angle = angle * (180 / Math.PI);
