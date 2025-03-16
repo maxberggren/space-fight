@@ -655,34 +655,6 @@ function setupSocketHandlers(scene) {
             planets[data.planetId].ownerId = data.newOwnerId;
             planets[data.planetId].color = data.playerColor;
             
-            // Get the planet position for effects
-            const planet = planets[data.planetId];
-            if (!planet) return; // Make sure planet exists
-            
-            // Create claim effect - ripple emanating from the planet
-            const rippleCount = 3;
-            for (let i = 0; i < rippleCount; i++) {
-                scene.time.delayedCall(i * 300, () => {
-                    const ripple = scene.add.graphics();
-                    const color = data.playerColor || 0xFFFFFF;
-                    
-                    // Draw ripple - explicitly use planet.x and planet.y from the planet object
-                    ripple.lineStyle(3, color, 0.7 - (i * 0.2));
-                    ripple.strokeCircle(planet.x, planet.y, planet.radius + 10);
-                    
-                    // Animate ripple expanding and fading
-                    scene.tweens.add({
-                        targets: ripple,
-                        scale: 1.5 + (i * 0.5),
-                        alpha: 0,
-                        duration: 1000,
-                        onComplete: () => {
-                            ripple.destroy();
-                        }
-                    });
-                });
-            }
-            
             // Play sound effect if available
             if (data.newOwnerId === socket.id) {
                 // Play claim sound (using explosion sound with different pitch)
@@ -1165,16 +1137,14 @@ function createPlanetGraphics(scene, planet) {
 
     // Load planet sprite
     const planetSpriteKey = `planet-${planetType}`;
-    const glowSpriteKey = `glow-${planetType}`;
 
     // Check if planet sprite is already loaded, if not, load it
     if (!scene.textures.exists(planetSpriteKey)) {
         scene.load.image(planetSpriteKey, `assets/planets/planet-${planetType}.png`);
-        scene.load.image(glowSpriteKey, `assets/planets/glow-${planetType}.png`);
         scene.load.start(); // Need to start the loader if we add new files
         scene.load.once('complete', () => {
             // After loading, create sprites
-            createPlanetSprites(scene, container, planet, planetSpriteKey, glowSpriteKey);
+            createPlanetSprites(scene, container, planet, planetSpriteKey);
         });
         // Use fallback texture temporarily
         const planetSprite = scene.add.sprite(0, 0, 'planet-fallback');
@@ -1182,23 +1152,48 @@ function createPlanetGraphics(scene, planet) {
         return container; // Return container immediately, sprites will be added later
     } else {
         // If already loaded, create sprites directly
-        createPlanetSprites(scene, container, planet, planetSpriteKey, glowSpriteKey);
+        createPlanetSprites(scene, container, planet, planetSpriteKey);
         return container;
     }
 }
 
-function createPlanetSprites(scene, container, planet, planetSpriteKey, glowSpriteKey) {
+function createPlanetSprites(scene, container, planet, planetSpriteKey) {
     // Create planet sprite - add to container first so glow is on top
     const planetSprite = scene.add.sprite(0, 0, planetSpriteKey);
     planetSprite.setScale(planet.radius / (planetSprite.width / 2)); // Scale planet based on planet radius
     container.add(planetSprite);
 
-    // Create glow sprite - behind the planet, but we will adjust depth to bring it forward
-    const glowSprite = scene.add.sprite(0, 0, glowSpriteKey);
-    glowSprite.setBlendMode(Phaser.BlendModes.ADD); // Additive blend mode for glow effect
-    glowSprite.setScale(planet.radius / (glowSprite.width / 2) * 1.8); // Increased scale factor to 2.5 for bigger glow
-    glowSprite.setDepth(1); // Set depth to 1 to render on top of ships and planet sprite
-    container.add(glowSprite);
+    // Create dynamic glow based on ownership instead of using a sprite
+    const glowGraphics = scene.add.graphics();
+    
+    // Determine glow color based on ownership
+    let glowColor = 0xFFFFFF; // Default white glow for unclaimed planets
+    let glowAlpha = 0.0;      // Default alpha for unclaimed planets
+    
+    if (planet.ownerId) {
+        // Use the owner's color for the glow
+        glowColor = planet.color || 0xFFFFFF;
+        glowAlpha = 0.3; // Stronger glow for claimed planets
+    }
+    
+    // Draw the glow as a gradient circle
+    const glowRadius = planet.radius * 1.5; // Larger than the planet
+    
+    // Create a radial gradient for the glow
+    glowGraphics.clear();
+    
+    // Draw outer glow (more transparent)
+    glowGraphics.fillStyle(glowColor, glowAlpha * 0.3);
+    glowGraphics.fillCircle(0, 0, glowRadius);
+    
+    // Draw inner glow (more opaque)
+    glowGraphics.fillStyle(glowColor, glowAlpha * 0.7);
+    glowGraphics.fillCircle(0, 0, glowRadius * 0.7);
+    
+    // Set blend mode for glow effect
+    glowGraphics.setBlendMode(Phaser.BlendModes.ADD);
+    glowGraphics.setDepth(1); // Set depth to render on top
+    container.add(glowGraphics);
 
     // Add owner name text - on top of planet
     if (planet.ownerId) {
