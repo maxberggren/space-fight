@@ -63,6 +63,7 @@ let playerNameTexts = {};
 let planetGraphics = {};
 let planetTexture;
 let starfieldLayers = [];
+let planetTypes = []; // Define planetTypes array
 
 // Available colors for player ships with friendly names
 const PLAYER_COLORS = [
@@ -159,57 +160,8 @@ function preload() {
     this.load.audio('shoot', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/audio/SoundEffects/blaster.mp3');
     this.load.audio('explosion', 'https://raw.githubusercontent.com/photonstorm/phaser3-examples/master/public/assets/audio/SoundEffects/explosion.mp3');
     
-    // Create a basic graphics texture for the planet
-    const graphics = this.add.graphics();
-    const radius = 100; // Default planet radius
-    graphics.fillStyle(0x888888, 1); // Gray color
-    graphics.fillCircle(radius, radius, radius);
-    
-    // Create a texture from the graphics object
-    graphics.generateTexture('planet-fallback', radius * 2, radius * 2);
-    graphics.destroy();
-}
-
-// Generate a planet texture programmatically
-function generatePlanetTexture() {
-    if (!scene) return;
-    
-    // Create graphics object for the planet texture
-    const graphics = scene.add.graphics();
-    
-    // Set size
-    const size = 256;
-    
-    // Draw a circular planet with some texture
-    const centerX = size / 2;
-    const centerY = size / 2;
-    const radius = size / 2 - 10;
-    
-    // Draw the main circle
-    graphics.fillStyle(0x888888, 1);
-    graphics.fillCircle(centerX, centerY, radius);
-    
-    // Add some craters
-    for (let i = 0; i < 15; i++) {
-        const craterX = centerX + (Math.random() * 2 - 1) * radius * 0.8;
-        const craterY = centerY + (Math.random() * 2 - 1) * radius * 0.8;
-        const craterRadius = 5 + Math.random() * 15;
-        
-        graphics.fillStyle(0x000000, 0.3);
-        graphics.fillCircle(craterX, craterY, craterRadius);
-    }
-    
-    // Add a subtle highlight
-    graphics.fillStyle(0xffffff, 0.1);
-    graphics.fillCircle(centerX - radius * 0.3, centerY - radius * 0.3, radius * 0.5);
-    
-    // Generate texture
-    graphics.generateTexture('planet', size, size);
-    
-    // Destroy the graphics object as we no longer need it
-    graphics.destroy();
-    
-    console.log('Planet texture generated programmatically');
+    // Load fallback planet texture - in case planet sprite loading fails or before they load
+    this.load.image('planet-fallback', 'assets/planets/planet-fallback.png');
 }
 
 // Create game objects
@@ -298,6 +250,9 @@ function setupSocketHandlers(scene) {
 
     socket.on('gameState', (state) => {
         // Handle initial game state
+        planetTypes = state.planetTypes || [];
+        console.log("Available planet types:", planetTypes);
+
         Object.keys(state.players).forEach(playerId => {
             const playerData = state.players[playerId];
             if (playerId === socket.id) {
@@ -345,8 +300,9 @@ function setupSocketHandlers(scene) {
         // Initialize planets
         if (state.planets) {
             Object.keys(state.planets).forEach(planetId => {
-                planets[planetId] = state.planets[planetId];
-                console.log(`Initialized planet ${planetId} at (${planets[planetId].x}, ${planets[planetId].y})`);
+                const planetData = state.planets[planetId];
+                planets[planetId] = planetData; // Store the entire planet data, including planetType
+                console.log(`Initialized planet ${planetId} of type ${planetData.planetType} at (${planets[planetId].x}, ${planets[planetId].y})`); // Log planet type
             });
         }
     });
@@ -496,13 +452,11 @@ function setupSocketHandlers(scene) {
         }
     });
     
-    // Handle planet creation
     socket.on('planetCreated', (planetData) => {
-        console.log(`Planet created: ${planetData.id} at (${planetData.x}, ${planetData.y})`);
-        planets[planetData.id] = planetData;
+        console.log(`Planet created: ${planetData.id} of type ${planetData.planetType} at (${planetData.x}, ${planetData.y})`); // Log planet type
+        planets[planetData.id] = planetData; // Store the entire planet data, including planetType
     });
     
-    // Handle planet hit
     socket.on('planetHit', (data) => {
         console.log(`Planet hit: ${data.planetId} at angle ${data.impactAngle.toFixed(2)}`);
         
@@ -518,80 +472,11 @@ function setupSocketHandlers(scene) {
         explosionSound.play({ volume: 0.3 });
     });
     
-    // Handle crater created
-    socket.on('craterCreated', (data) => {
-        console.log(`Crater created on planet ${data.planetId} at (${data.crater.x.toFixed(2)}, ${data.crater.y.toFixed(2)})`);
-        
-        // Make sure the planet exists
-        if (planets[data.planetId]) {
-            // Initialize craters array if it doesn't exist
-            if (!planets[data.planetId].craters) {
-                planets[data.planetId].craters = [];
-            }
-            
-            // Add the new crater
-            planets[data.planetId].craters.push(data.crater);
-            
-            // Calculate the vector from planet center to crater
-            const planet = planets[data.planetId];
-            const dx = data.crater.x - planet.x;
-            const dy = data.crater.y - planet.y;
-            
-            // Create debris particles flying out from the crater
-            const particleCount = 8 + Math.floor(Math.random() * 5);
-            for (let i = 0; i < particleCount; i++) {
-                // Calculate random direction for debris - only in the outward hemisphere
-                // This ensures debris only flies outward from the impact point
-                const baseAngle = Math.atan2(dy, dx);
-                const debrisAngle = baseAngle + (Math.random() - 0.5) * Math.PI * 0.8; // Limit to outward hemisphere
-                const debrisSpeed = 1 + Math.random() * 2;
-                const debrisDistance = Math.random() * data.crater.radius;
-                
-                // Create a small particle
-                const particle = scene.add.graphics();
-                const particleSize = 1 + Math.random() * 3;
-                const particleColor = 0x888888;
-                
-                // Draw particle
-                particle.fillStyle(particleColor, 0.7);
-                particle.fillCircle(
-                    data.crater.x + Math.cos(debrisAngle) * debrisDistance,
-                    data.crater.y + Math.sin(debrisAngle) * debrisDistance,
-                    particleSize
-                );
-                
-                // Animate particle flying outward and fading
-                scene.tweens.add({
-                    targets: particle,
-                    x: Math.cos(debrisAngle) * 50 * debrisSpeed,
-                    y: Math.sin(debrisAngle) * 50 * debrisSpeed,
-                    alpha: 0,
-                    duration: 1000 + Math.random() * 500,
-                    onComplete: () => {
-                        particle.destroy();
-                    }
-                });
-            }
-            
-            // Add a dust cloud effect
-            const dust = scene.add.sprite(data.crater.x, data.crater.y, 'explosion');
-            dust.setScale(0.3 + (data.crater.radius / 50)); // Scale based on crater size
-            dust.setAlpha(0.6);
-            dust.setTint(0x888888);
-            dust.play('explode');
-            dust.once('animationcomplete', () => {
-                dust.destroy();
-            });
-        }
-    });
-    
-    // Handle planet removed
     socket.on('planetRemoved', (planetId) => {
         console.log(`Planet removed: ${planetId}`);
         delete planets[planetId];
     });
     
-    // Handle player crashed on planet
     socket.on('playerCrashed', (data) => {
         console.log(`Player crashed: ${data.playerId} on planet ${data.planetId}`);
         
@@ -602,24 +487,13 @@ function setupSocketHandlers(scene) {
         explosion.once('animationcomplete', () => {
             explosion.destroy();
         });
-        
-        // Play explosion sound
-        explosionSound.play({ volume: 0.6 });
+
+        {{explosionSound.play({ volume: 0.6 });}}
     });
     
-    // Handle player landed on planet
     socket.on('playerLanded', (data) => {
         console.log(`Player landed: ${data.playerId} on planet ${data.planetId}`);
-        
-        // Create small dust effect
-        const dust = scene.add.sprite(data.x, data.y, 'explosion');
-        dust.setScale(0.3);
-        dust.setAlpha(0.5);
-        dust.play('explode');
-        dust.once('animationcomplete', () => {
-            dust.destroy();
-        });
-        
+
         // If this is our player, show a takeoff hint
         if (data.playerId === socket.id) {
             const hintText = scene.add.text(data.x, data.y - 50, "Press UP to take off", {
@@ -683,7 +557,6 @@ function setupSocketHandlers(scene) {
         }
     });
     
-    // Handle player takeoff from planet
     socket.on('playerTakeoff', (data) => {
         console.log(`Player took off: ${data.playerId} from planet ${data.planetId}`);
         
@@ -744,7 +617,6 @@ function setupSocketHandlers(scene) {
         }
     });
     
-    // Handle planet severely damaged
     socket.on('planetSeverelyDamaged', (data) => {
         console.log(`Planet severely damaged: ${data.planetId}`);
         
@@ -775,7 +647,6 @@ function setupSocketHandlers(scene) {
         }
     });
     
-    // Handle planet claimed event
     socket.on('planetClaimed', (data) => {
         console.log(`Planet ${data.planetId} claimed by player ${data.newOwnerId}`);
         
@@ -786,6 +657,7 @@ function setupSocketHandlers(scene) {
             
             // Get the planet position for effects
             const planet = planets[data.planetId];
+            if (!planet) return; // Make sure planet exists
             
             // Create claim effect - ripple emanating from the planet
             const rippleCount = 3;
@@ -794,7 +666,7 @@ function setupSocketHandlers(scene) {
                     const ripple = scene.add.graphics();
                     const color = data.playerColor || 0xFFFFFF;
                     
-                    // Draw ripple
+                    // Draw ripple - explicitly use planet.x and planet.y from the planet object
                     ripple.lineStyle(3, color, 0.7 - (i * 0.2));
                     ripple.strokeCircle(planet.x, planet.y, planet.radius + 10);
                     
@@ -1282,54 +1154,53 @@ function createPlayerTriangle(scene, x, y, color, angle) {
     return ship;
 }
 
-// Completely revise the planet rendering function to be more robust
+// Improved planet rendering function using sprites
 function createPlanetGraphics(scene, planet) {
     // Create a container for the planet
     const container = scene.add.container(0, 0);
-    container.setDepth(-10); // Set a negative depth to ensure it's behind other game elements
-    
-    // Create a graphics object for the planet base
-    const planetBase = scene.add.graphics();
-    
-    // Draw the planet with a white border
-    planetBase.fillStyle(planet.color, 1);
-    planetBase.lineStyle(2, 0xffffff, 1); // White border
-    planetBase.beginPath();
-    planetBase.arc(0, 0, planet.radius, 0, Math.PI * 2, false);
-    planetBase.closePath();
-    planetBase.fillPath();
-    planetBase.strokePath();
-    
-    // Add the planet base to the container
-    container.add(planetBase);
-    
-    // If the planet has craters, create them as separate graphics objects with ERASE blend mode
-    // if (planet.craters && planet.craters.length > 0) { // Comment out this entire block
-    //     // Create a single graphics object for all craters
-    //     const cratersGraphics = scene.add.graphics();
+    container.setDepth(-10); // Ensure planets are behind ships
 
-    //     // Set blend mode to ERASE to cut out from the planet
-    //     cratersGraphics.setBlendMode(Phaser.BlendModes.ERASE);
+    // Dynamically determine the planet type for sprite loading
+    const planetType = planet.planetType || 'planet-fallback'; // Use planetType from planet data, fallback if missing
 
-    //     // Draw each crater
-    //     planet.craters.forEach(crater => {
-    //         // Calculate crater position relative to planet center
-    //         const craterX = crater.x - planet.x;
-    //         const craterY = crater.y - planet.y;
+    // Load planet sprite
+    const planetSpriteKey = `planet-${planetType}`;
+    const glowSpriteKey = `glow-${planetType}`;
 
-    //         // Draw the crater as a solid black circle
-    //         cratersGraphics.fillStyle(0x000000, 1);
-    //         cratersGraphics.beginPath();
-    //         cratersGraphics.arc(craterX, craterY, crater.radius, 0, Math.PI * 2, false);
-    //         cratersGraphics.closePath();
-    //         cratersGraphics.fillPath();
-    //     });
+    // Check if planet sprite is already loaded, if not, load it
+    if (!scene.textures.exists(planetSpriteKey)) {
+        scene.load.image(planetSpriteKey, `assets/planets/planet-${planetType}.png`);
+        scene.load.image(glowSpriteKey, `assets/planets/glow-${planetType}.png`);
+        scene.load.start(); // Need to start the loader if we add new files
+        scene.load.once('complete', () => {
+            // After loading, create sprites
+            createPlanetSprites(scene, container, planet, planetSpriteKey, glowSpriteKey);
+        });
+        // Use fallback texture temporarily
+        const planetSprite = scene.add.sprite(0, 0, 'planet-fallback');
+        container.add(planetSprite);
+        return container; // Return container immediately, sprites will be added later
+    } else {
+        // If already loaded, create sprites directly
+        createPlanetSprites(scene, container, planet, planetSpriteKey, glowSpriteKey);
+        return container;
+    }
+}
 
-    //     // Add the craters graphics to the container
-    //     container.add(cratersGraphics);
-    // } // Comment out this entire block
-    
-    // Add owner name text
+function createPlanetSprites(scene, container, planet, planetSpriteKey, glowSpriteKey) {
+    // Create planet sprite - add to container first so glow is on top
+    const planetSprite = scene.add.sprite(0, 0, planetSpriteKey);
+    planetSprite.setScale(planet.radius / (planetSprite.width / 2)); // Scale planet based on planet radius
+    container.add(planetSprite);
+
+    // Create glow sprite - behind the planet, but we will adjust depth to bring it forward
+    const glowSprite = scene.add.sprite(0, 0, glowSpriteKey);
+    glowSprite.setBlendMode(Phaser.BlendModes.ADD); // Additive blend mode for glow effect
+    glowSprite.setScale(planet.radius / (glowSprite.width / 2) * 1.8); // Increased scale factor to 2.5 for bigger glow
+    glowSprite.setDepth(1); // Set depth to 1 to render on top of ships and planet sprite
+    container.add(glowSprite);
+
+    // Add owner name text - on top of planet
     if (planet.ownerId) {
         // Find the player who owns this planet
         let ownerName = "Unknown";
@@ -1340,7 +1211,7 @@ function createPlanetGraphics(scene, planet) {
         } 
         // Check if it's another player's planet
         else if (otherPlayers[planet.ownerId]) {
-            ownerName = otherPlayers[planet.ownerId].name || planet.ownerId.substring(0, 4);
+            ownerName = otherPlayers[planet.ownerId].name || otherPlayers[planet.ownerId].name.substring(0, 4);
         }
         
         // Create text for the owner name
@@ -1357,8 +1228,6 @@ function createPlanetGraphics(scene, planet) {
         // Add the name text to the container
         container.add(nameText);
     }
-    
-    return container;
 }
 
 // Improve the renderPlanets function with better error handling

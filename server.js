@@ -1,14 +1,14 @@
 const express = require('express');
 const app = express();
 const http = require('http').createServer(app);
+const path = require('path');
+const fs = require('fs'); // Add fs module
 
 // Configure Socket.IO with proper options
 const io = require('socket.io')(http, {
     // Set a higher maxHttpBufferSize to handle larger payloads
     maxHttpBufferSize: 1e8 // 100 MB
 });
-
-const path = require('path');
 
 // Import shared configuration
 const { PHYSICS, WORLD, GAME, NETWORK } = require('./shared-config');
@@ -97,11 +97,33 @@ app.use(express.static(path.join(__dirname, '/'), {
     }
 }));
 
+// Function to get planet types from files in assets/planets directory
+function getPlanetTypes() {
+    const planetsDir = path.join(__dirname, 'assets', 'planets');
+    let planetFiles = [];
+    try {
+        planetFiles = fs.readdirSync(planetsDir);
+    } catch (err) {
+        console.error("Error reading planets directory:", err);
+        return []; // Return empty array if directory reading fails
+    }
+
+    const planetCodes = new Set(); // Use a Set to avoid duplicates
+    planetFiles.forEach(file => {
+        const match = file.match(/planet-(.+)\.png/); // Match planet images
+        if (match) {
+            planetCodes.add(match[1]); // Extract the planet code (e.g., planet1, planet2)
+        }
+    });
+    return Array.from(planetCodes); // Convert Set to Array
+}
+
 // Game state
 const gameState = {
     players: {},
     bullets: [],
-    planets: {} // New planets object to store player planets
+    planets: {},
+    planetTypes: getPlanetTypes()
 };
 
 // Constants for player inactivity
@@ -127,7 +149,8 @@ io.on('connection', (socket) => {
         lastProcessedInput: 0,
         lastShootTime: null,
         landedOnPlanet: null, // Track if player is landed on a planet
-        lastActivityTime: Date.now() // Track when the player was last active
+        lastActivityTime: Date.now(), // Track when the player was last active
+        canTakeoff: true // New property: can player take off? - initially true
     };
     
     // Create a planet for the player
@@ -202,10 +225,13 @@ io.on('connection', (socket) => {
                 y: Number(planet.y),
                 radius: Number(planet.radius),
                 color: Number(planet.color || 0),
-                craters: cleanCraters
+                craters: cleanCraters,
+                planetType: planet.planetType
             };
         });
         
+        cleanState.planetTypes = gameState.planetTypes; // Send planetTypes to client
+
         socket.emit('gameState', cleanState);
     } catch (err) {
         console.error("Error sending initial game state:", err);
@@ -254,59 +280,64 @@ io.on('connection', (socket) => {
 
         // If player is landed on a planet, handle takeoff
         if (player.landedOnPlanet && input.isThrusting) {
-            // Player is thrusting, so they take off from the planet
-            console.log(`Player ${socket.id} taking off from planet ${player.landedOnPlanet}`);
-            
-            // Get the planet the player is taking off from
-            const planet = gameState.planets[player.landedOnPlanet];
-            
-            // Clear the landed state
-            player.landedOnPlanet = null;
-            
-            // Give a boost away from the planet
-            if (planet) {
-                const dx = player.x - planet.x;
-                const dy = player.y - planet.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                const angle = Math.atan2(dy, dx);
+            // Check if takeoff is allowed
+            if (player.canTakeoff) {
+                // Player is thrusting, so they take off from the planet
+                console.log(`Player ${socket.id} taking off from planet ${player.landedOnPlanet}`);
                 
-                // Move player slightly away from planet surface to prevent immediate collision
-                const safeDistance = planet.radius + 30; // Add 30 units of clearance
-                const scaleFactor = safeDistance / distance;
-                player.x = planet.x + dx * scaleFactor;
-                player.y = planet.y + dy * scaleFactor;
+                // Get the planet the player is taking off from
+                const planet = gameState.planets[player.landedOnPlanet];
                 
-                // Set velocity away from planet center with the takeoff boost value
-                player.velocity.x = Math.cos(angle) * PHYSICS.takeoffBoost;
-                player.velocity.y = Math.sin(angle) * PHYSICS.takeoffBoost;
+                // Clear the landed state
+                player.landedOnPlanet = null;
                 
-                // Also set player angle to match takeoff direction
-                player.angle = angle * (180 / Math.PI);
-                
-                // Set temporary invulnerability to prevent immediate crash
-                player.invulnerable = true;
-                
-                // Clear any existing invulnerability timer
-                if (player.invulnerabilityTimer) {
-                    clearTimeout(player.invulnerabilityTimer);
-                }
-                
-                // Remove invulnerability after a short time
-                player.invulnerabilityTimer = setTimeout(() => {
-                    if (gameState.players[player.id]) {
-                        gameState.players[player.id].invulnerable = false;
-                        console.log(`Player ${player.id} is no longer invulnerable after takeoff`);
+                // Give a boost away from the planet
+                if (planet) {
+                    const dx = player.x - planet.x;
+                    const dy = player.y - planet.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    const angle = Math.atan2(dy, dx);
+                    
+                    // Move player slightly away from planet surface to prevent immediate collision
+                    const safeDistance = planet.radius + 30; // Add 30 units of clearance
+                    const scaleFactor = safeDistance / distance;
+                    player.x = planet.x + dx * scaleFactor;
+                    player.y = planet.y + dy * scaleFactor;
+                    
+                    // Set velocity away from planet center with the takeoff boost value
+                    player.velocity.x = Math.cos(angle) * PHYSICS.takeoffBoost;
+                    player.velocity.y = Math.sin(angle) * PHYSICS.takeoffBoost;
+                    
+                    // Also set player angle to match takeoff direction
+                    player.angle = angle * (180 / Math.PI);
+                    
+                    // Set temporary invulnerability to prevent immediate crash
+                    player.invulnerable = true;
+                    
+                    // Clear any existing invulnerability timer
+                    if (player.invulnerabilityTimer) {
+                        clearTimeout(player.invulnerabilityTimer);
                     }
-                }, 1500); // 1.5 seconds of invulnerability
-                
-                // Emit takeoff event
-                io.emit('playerTakeoff', {
-                    playerId: player.id,
-                    planetId: planet.id,
-                    x: player.x,
-                    y: player.y,
-                    angle: player.angle
-                });
+                    
+                    // Remove invulnerability after a short time
+                    player.invulnerabilityTimer = setTimeout(() => {
+                        if (gameState.players[player.id]) {
+                            gameState.players[player.id].invulnerable = false;
+                            console.log(`Player ${player.id} is no longer invulnerable after takeoff`);
+                        }
+                    }, 1500); // 1.5 seconds of invulnerability
+                    
+                    // Emit takeoff event
+                    io.emit('playerTakeoff', {
+                        playerId: player.id,
+                        planetId: planet.id,
+                        x: player.x,
+                        y: player.y,
+                        angle: player.angle
+                    });
+                }
+            } else {
+                console.log(`Player ${socket.id} thrusting but cannot takeoff yet from planet ${player.landedOnPlanet}`);
             }
         }
 
@@ -459,7 +490,8 @@ setInterval(() => {
                 y: Number(planet.y),
                 radius: Number(planet.radius),
                 color: Number(planet.color || 0),
-                craters: cleanCraters
+                craters: cleanCraters,
+                planetType: planet.planetType
             };
         });
         
@@ -738,7 +770,7 @@ function createPlanetForPlayer(playerId) {
         
         planetX = Math.cos(angle) * distanceFromPlayer;
         planetY = Math.sin(angle) * distanceFromPlayer;
-        planetRadius = 100 + Math.random() * 50; // Random radius between 100-150
+        planetRadius = 80 + Math.random() * 80; // Random radius between 80-160 (increased variation)
         
         // Check distance from all existing planets
         validPosition = true; // Assume position is valid until proven otherwise
@@ -764,6 +796,9 @@ function createPlanetForPlayer(playerId) {
         console.warn(`Could not find valid planet position after ${attempts} attempts. Using last position.`);
     }
     
+    // Choose a random planet type ONCE here
+    const planetType = gameState.planetTypes[Math.floor(Math.random() * gameState.planetTypes.length)];
+
     const planet = {
         id: playerId, // Use player ID as planet ID for easy reference
         ownerId: playerId, // Initially owned by the player who created it
@@ -773,16 +808,25 @@ function createPlanetForPlayer(playerId) {
         color: player.color,
         segments: [], // Will store segments that are damaged
         originalOwner: playerId, // Track the original owner
-        craters: [] // New craters array
+        craters: [], // New craters array
+        planetType: planetType // Store the planetType here
     };
     
     // Initialize planet with full health (no damaged segments)
     gameState.planets[playerId] = planet;
     
-    console.log(`Created planet for player ${playerId} at (${planet.x.toFixed(2)}, ${planet.y.toFixed(2)}), radius: ${planet.radius.toFixed(2)}`);
+    console.log(`Created planet for player ${playerId} of type ${planetType} at (${planet.x.toFixed(2)}, ${planet.y.toFixed(2)}), radius: ${planet.radius.toFixed(2)}`);
     
-    // Notify all clients about the new planet
-    io.emit('planetCreated', planet);
+    // Notify all clients about the new planet, including planetType
+    io.emit('planetCreated', {
+        id: planet.id,
+        ownerId: planet.ownerId,
+        x: planet.x,
+        y: planet.y,
+        radius: planet.radius,
+        color: planet.color,
+        planetType: planetType // Send planetType to clients
+    });
     
     return planet;
 }
@@ -965,6 +1009,15 @@ function checkPlanetCollisions(player) {
                     });
 
                     console.log(`Planet ${planet.id} claimed by player ${player.id} (${player.name})`);
+
+                    // Disable immediate takeoff and set a timer to re-enable it
+                    player.canTakeoff = false; // Disable takeoff immediately after landing
+                    setTimeout(() => {
+                        if (gameState.players[player.id]) { // Check if player still exists
+                            gameState.players[player.id].canTakeoff = true; // Re-enable takeoff after delay
+                            console.log(`Player ${player.id} can now take off from planet ${planet.id}`);
+                        }
+                    }, 1000); // 1 second delay before takeoff is re-enabled
                 }
             }
         }
