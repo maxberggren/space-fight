@@ -150,7 +150,8 @@ io.on('connection', (socket) => {
         lastShootTime: null,
         landedOnPlanet: null, // Track if player is landed on a planet
         lastActivityTime: Date.now(), // Track when the player was last active
-        canTakeoff: true // New property: can player take off? - initially true
+        canTakeoff: true, // New property: can player take off? - initially true
+        takeoffTimer: null // Added takeoff timer
     };
     
     // Create a planet for the player
@@ -284,7 +285,7 @@ io.on('connection', (socket) => {
                 // Clear the landed state
                 player.landedOnPlanet = null;
                 
-                // Give a small initial boost away from the planet
+                // Give a boost away from the planet that's proportional to the planet's gravity
                 if (planet) {
                     const dx = player.x - planet.x;
                     const dy = player.y - planet.y;
@@ -292,14 +293,19 @@ io.on('connection', (socket) => {
                     const angle = Math.atan2(dy, dx);
                     
                     // Move player slightly away from planet surface to prevent immediate collision
-                    const safeDistance = planet.radius + 20; // Reduced from 270 to 20 for more gradual takeoff
+                    const safeDistance = planet.radius + 20; // Small buffer distance
                     const scaleFactor = safeDistance / distance;
                     player.x = planet.x + dx * scaleFactor;
                     player.y = planet.y + dy * scaleFactor;
                     
-                    // Set a much smaller initial velocity away from planet center
-                    player.velocity.x = Math.cos(angle) * (PHYSICS.takeoffBoost * 0.3); // Reduced to 30% of original boost
-                    player.velocity.y = Math.sin(angle) * (PHYSICS.takeoffBoost * 0.3);
+                    // Calculate a take-off boost that scales with the planet's radius (gravity)
+                    // Larger planets need more boost to escape
+                    const gravityFactor = planet.radius / 100; // Normalize based on a 100-radius planet
+                    const adaptiveBoost = PHYSICS.takeoffBoost * 0.3 * Math.max(1, gravityFactor);
+                    
+                    // Set velocity away from planet center with adaptive boost
+                    player.velocity.x = Math.cos(angle) * adaptiveBoost;
+                    player.velocity.y = Math.sin(angle) * adaptiveBoost;
                     
                     // Also set player angle to match takeoff direction
                     player.angle = angle * (180 / Math.PI);
@@ -940,7 +946,12 @@ function checkPlanetCollisions(player) {
 
                     // Disable immediate takeoff and set a timer to re-enable it
                     player.canTakeoff = false; // Disable takeoff immediately after landing
-                    setTimeout(() => {
+                    // Clear any existing takeoff timer
+                    if (player.takeoffTimer) {
+                        clearTimeout(player.takeoffTimer);
+                    }
+                    // Set new takeoff timer
+                    player.takeoffTimer = setTimeout(() => {
                         if (gameState.players[player.id]) { // Check if player still exists
                             gameState.players[player.id].canTakeoff = true; // Re-enable takeoff after delay
                             console.log(`Player ${player.id} can now take off from planet ${planet.id}`);
