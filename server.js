@@ -276,8 +276,6 @@ io.on('connection', (socket) => {
         if (player.landedOnPlanet && input.isThrusting) {
             // Check if takeoff is allowed
             if (player.canTakeoff) {
-                // Player is thrusting, so they take off from the planet
-                console.log(`Player ${socket.id} taking off from planet ${player.landedOnPlanet}`);
                 
                 // Get the planet the player is taking off from
                 const planet = gameState.planets[player.landedOnPlanet];
@@ -322,7 +320,6 @@ io.on('connection', (socket) => {
                     player.invulnerabilityTimer = setTimeout(() => {
                         if (gameState.players[player.id]) {
                             gameState.players[player.id].invulnerable = false;
-                            console.log(`Player ${player.id} is no longer invulnerable after takeoff`);
                         }
                     }, 1500); // 1.5 seconds of invulnerability
                     
@@ -335,9 +332,7 @@ io.on('connection', (socket) => {
                         angle: player.angle
                     });
                 }
-            } else {
-                console.log(`Player ${socket.id} thrusting but cannot takeoff yet from planet ${player.landedOnPlanet}`);
-            }
+            } 
         }
 
         // Update player state based on input (only if not landed)
@@ -352,14 +347,11 @@ io.on('connection', (socket) => {
 
         // Handle shooting with cooldown
         const now = Date.now();
-        if (input.isShooting) {
-            console.log(`Shooting attempt from player ${player.id}, lastShootTime: ${player.lastShootTime}, cooldown: ${GAME.shootCooldown}ms`);
-            
+        if (input.isShooting) {            
             // Allow shooting regardless of invulnerability
             if (!player.lastShootTime || now - player.lastShootTime > GAME.shootCooldown) {
                 const bullet = createBullet(player);
                 player.lastShootTime = now;
-                console.log(`Bullet created at (${bullet.x.toFixed(2)}, ${bullet.y.toFixed(2)}), velocity: (${bullet.velocityX.toFixed(2)}, ${bullet.velocityY.toFixed(2)})`);
             }
         }
 
@@ -587,9 +579,6 @@ function createBullet(player) {
     
     gameState.bullets.push(bullet);
     
-    // Log for debugging
-    console.log(`Player ${player.id} fired a bullet at position (${bulletX.toFixed(2)}, ${bulletY.toFixed(2)})`);
-    
     return bullet;
 }
 
@@ -645,11 +634,9 @@ function updateBullets() {
             
             // Check if bullet is near the planet's surface
             if (distance < planet.radius + 5) {
+                
                 // Calculate impact angle from planet center to bullet
                 const impactAngle = Math.atan2(dy, dx);
-                
-                // Bullet hit planet
-                console.log(`Bullet hit planet owned by ${planet.ownerId.substring(0,4)} at angle ${(impactAngle * 180 / Math.PI).toFixed(2)}°`);
                 
                 // Calculate the exact impact coordinates (where the bullet actually hit)
                 const exactImpactX = bullet.x;
@@ -866,8 +853,6 @@ function checkPlanetCollisions(player) {
 
                 const impactSpeed = Math.abs(velocityTowardsPlanet);
 
-                console.log(`Player ${player.id} collided with planet at speed ${impactSpeed.toFixed(2)}`);
-
                 // If impact speed is too high, player dies
                 if (impactSpeed > PHYSICS.maxLandingSpeed) {
                     if (!player.invulnerable) { // Only crash if NOT invulnerable
@@ -883,13 +868,8 @@ function checkPlanetCollisions(player) {
                         });
 
                         respawnPlayer(player);
-                    } else {
-                        console.log(`Player ${player.id} is invulnerable, crash avoided.`);
                     }
                 } else {
-                    // Safe landing - position player on the visible surface and stop movement
-                    console.log(`Player ${player.id} safely landed on planet ${planet.id}`);
-
                     // Calculate position on the surface
                     const surfaceAngle = Math.atan2(dy, dx);
                     player.x = planet.x - Math.cos(surfaceAngle) * (planet.radius + 5);
@@ -954,7 +934,6 @@ function checkPlanetCollisions(player) {
                     player.takeoffTimer = setTimeout(() => {
                         if (gameState.players[player.id]) { // Check if player still exists
                             gameState.players[player.id].canTakeoff = true; // Re-enable takeoff after delay
-                            console.log(`Player ${player.id} can now take off from planet ${planet.id}`);
                         }
                     }, 1000); // 1 second delay before takeoff is re-enabled
                 }
